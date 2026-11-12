@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Abrimela si podés | El Gran Golpe Cooperativo</title>
+    <link rel="stylesheet" href="css/style.css">
+    <!-- Google Fonts para grabado y tipografía de casino -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Montserrat:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- PeerJS para multijugador online P2P sin necesidad de servidor -->
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+</head>
+<body>
+
+    <!-- Header Superior -->
+    <header>
+        <div class="logo-area">
+            <img src="assets/logo.png" alt="Abrimela si podés" class="game-logo-img">
+            <div class="logo-text">
+                <h1>ABRIMELA SI PODÉS</h1>
+                <span>EL GRAN GOLPE COOPERATIVO</span>
+            </div>
+        </div>
+
+        <div class="header-controls">
+            <div id="header-room-info" class="room-badge hidden">
+                <span>SALA:</span>
+                <strong id="room-code-display">----</strong>
+                <button id="btn-copy-invite" class="btn-icon" title="Copiar enlace de invitación">📋</button>
+            </div>
+            <button id="btn-sound-toggle" class="btn-icon" title="Silenciar / Activar Sonidos">🔊</button>
+            <button id="btn-rules" class="btn-icon" title="Manual de Reglas">❓</button>
+        </div>
+    </header>
+
+    <!-- Pantalla de Inicio / Lobby -->
+    <main id="lobby-screen" class="lobby-screen">
+        <div class="lobby-card">
+            <div class="lobby-header">
+                <img src="assets/logo.png" alt="Logo" class="lobby-logo-img">
+                <h2>Abrimela si podés</h2>
+                <p>El gran golpe cooperativo</p>
+            </div>
+
+            <!-- Selección de Avatar y Nombre -->
+            <div class="input-group">
+                <label>Nombre del Agente:</label>
+                <input type="text" id="input-player-name" placeholder="Ej: Maestro, La Furia..." maxlength="15" value="Cerebro">
+            </div>
+
+            <div class="input-group">
+                <label>Elige tu Avatar o Sube tu Foto:</label>
+                <div class="avatar-selector">
+                    <button class="avatar-btn selected" data-avatar="🕵️">🕵️</button>
+                    <button class="avatar-btn" data-avatar="🧠">🧠</button>
+                    <button class="avatar-btn" data-avatar="🕶️">🕶️</button>
+                    <button class="avatar-btn" data-avatar="💻">💻</button>
+                    <button class="avatar-btn" data-avatar="🔑">🔑</button>
+                    <button class="avatar-btn" data-avatar="🧨">🧨</button>
+                    <button class="avatar-btn" data-avatar="🏎️">🏎️</button>
+                    <label class="avatar-btn avatar-upload-label" id="btn-upload-avatar" title="Subir foto propia">
+                        <input type="file" id="input-avatar-file" accept="image/*" style="display:none;">
+                        <span id="avatar-upload-icon">📷</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Navegación de Modos -->
+            <div class="lobby-tabs" style="display:flex;gap:10px;margin:15px 0;">
+                <button id="tab-create" class="lobby-tab btn btn-secondary active" style="flex:1;">Crear Sala</button>
+                <button id="tab-join" class="lobby-tab btn btn-secondary" style="flex:1;">Unirse</button>
+                <button id="tab-solo" class="lobby-tab btn btn-secondary" style="flex:1;">Solo (Bots)</button>
+            </div>
+
+            <!-- Sección Crear Sala -->
+            <div id="section-create" class="lobby-actions">
+                <button id="btn-create-room" class="btn btn-primary">
+                    <span>🌐</span> Crear Sala Multijugador Online
+                </button>
+                <p style="font-size:0.8rem;color:var(--text-muted);text-align:center;">
+                    Crea una sala y comparte el enlace directo con tus amigos de Discord.
+                </p>
+            </div>
+
+            <!-- Sección Unirse a Sala -->
+            <div id="section-join" class="lobby-actions hidden">
+                <div class="input-group">
+                    <label>Código de Sala:</label>
+                    <input type="text" id="input-join-code" placeholder="Ej: GOLPE" style="text-transform:uppercase;">
+                </div>
+                <button id="btn-join-room" class="btn btn-primary">
+                    <span>🚪</span> Entrar al Golpe
+                </button>
+            </div>
+
+            <!-- Sección Jugar Solo con Bots -->
+            <div id="section-solo" class="lobby-actions hidden">
+                <div class="input-group">
+                    <label>Cantidad de Cómplices Bots (2 a 5):</label>
+                    <select id="select-bot-count" class="custom-select">
+                        <option value="2">2 Bots (Total 3 jugadores)</option>
+                        <option value="3" selected>3 Bots (Total 4 jugadores)</option>
+                        <option value="4">4 Bots (Total 5 jugadores)</option>
+                        <option value="5">5 Bots (Total 6 jugadores)</option>
+                    </select>
+                </div>
+                <button id="btn-start-solo" class="btn btn-primary">
+                    <span>🤖</span> Jugar Ahora con Bots
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <!-- Pantalla Principal de Partida -->
+    <main id="game-screen" class="game-container hidden">
+
+        <!-- Marcador Superior: Bóvedas reales y Alarmas reales -->
+        <section class="heist-tracker">
+            <div class="tracker-group">
+                <div class="tracker-title vault-title">
+                    <span>🏦</span> BÓVEDAS
+                </div>
+                <div class="tracker-slots">
+                    <div class="vault-slot">🔒</div>
+                    <div class="vault-slot">🔒</div>
+                    <div class="vault-slot">🔒</div>
+                </div>
+            </div>
+
+            <div class="phase-indicator">
+                <div id="phase-badge" class="phase-badge">PREFLOP</div>
+                <div id="phase-subtext" class="phase-subtext"></div>
+            </div>
+
+            <div class="tracker-group">
+                <div class="tracker-title alarm-title">
+                    <span>🚨</span> ALARMAS
+                </div>
+                <div class="tracker-slots">
+                    <div class="alarm-slot">🛡️</div>
+                    <div class="alarm-slot">🛡️</div>
+                    <div class="alarm-slot">🛡️</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Arena de Juego: Asientos exteriores + Mesa Central de Póker -->
+        <div class="table-arena-wrapper">
+            <div class="poker-table-felt" id="poker-table-felt">
+                <!-- Grabado Estético en el fieltro -->
+                <div class="felt-engraving">La mesa del gordo</div>
+
+                <!-- Centro de la mesa: Cartas comunitarias y fichas -->
+                <div class="table-center-board">
+                    <div class="community-cards-area" id="community-cards-container">
+                        <!-- Flop 1-3, Turn, River -->
+                    </div>
+
+                    <!-- Rack de Fichas de Casino Reales -->
+                    <div id="chips-rack-section" class="chips-rack-section">
+                        <div class="chips-rack-label">FICHAS DE MANO (Clic para tomar o pedir cambio)</div>
+                        <div id="chips-container" class="chips-container">
+                            <!-- Fichas generadas con diseño real de casino -->
+                        </div>
+                    </div>
+
+                    <!-- Banner de Showdown en Vivo -->
+                    <div id="showdown-live-banner" class="showdown-live-banner hidden">
+                        <div id="showdown-banner-text">Iniciando revelación...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Asientos de los Jugadores ubicados POR FUERA de la mesa en sentido horario -->
+            <div id="poker-seats-container" class="poker-seats-container">
+                <!-- Se inyectan dinámicamente con orientación simétrica hacia el paño -->
+            </div>
+        </div>
+
+        <!-- Barra Inferior de Asistencia y Acciones -->
+        <footer class="bottom-controls-bar">
+            <!-- Asistente de Mano para el Jugador Local -->
+            <div id="hand-assistant-box" class="hand-assistant-box">
+                <span style="font-size:1.3rem;">💡</span>
+                <div>
+                    <div class="assistant-label">Tu Mejor Mano:</div>
+                    <div id="hand-assistant-content" class="assistant-value">Cargando...</div>
+                </div>
+            </div>
+
+            <!-- Reacciones / Emotes Rápidos -->
+            <div class="emotes-bar">
+                <button class="btn-emote" data-emote="👀" title="Observar">👀</button>
+                <button class="btn-emote" data-emote="🤔" title="Duda">🤔</button>
+                <button class="btn-emote" data-emote="😅" title="Nervios">😅</button>
+                <button class="btn-emote" data-emote="😱" title="Pánico">😱</button>
+                <button class="btn-emote" data-emote="🤞" title="Suerte">🤞</button>
+                <button class="btn-emote" data-emote="💰" title="Millonarios">💰</button>
+                <button class="btn-emote" data-emote="🚨" title="Peligro">🚨</button>
+            </div>
+
+            <!-- Botones de Acción de Fase -->
+            <div id="action-buttons-container" class="action-buttons-container">
+                <!-- Listo, Siguiente Fase, etc. -->
+            </div>
+        </footer>
+
+    </main>
+
+    <!-- Widget Flotante de Combinaciones de Póker (Hover & Pin) -->
+    <div id="poker-cheatsheet-widget" class="poker-cheatsheet-widget">
+        <button id="cheatsheet-trigger-btn" class="cheatsheet-trigger-btn" title="Tabla de Manos de Póker (Pasa el cursor o haz clic para fijar)">
+            <span>🎴</span>
+            <span class="btn-text">MANOS</span>
+            <span id="pin-indicator" class="pin-indicator">📌</span>
+        </button>
+
+        <!-- Tarjeta Flotante estilo Carta Física del Juego -->
+        <div id="cheatsheet-card-popup" class="cheatsheet-card-popup">
+            <div class="cheatsheet-header">
+                <div class="cheatsheet-title">🃏 Jerarquía de Texas Hold'em</div>
+                <button id="btn-pin-cheatsheet" class="btn-pin" title="Fijar / Desfijar en pantalla">📌</button>
+            </div>
+            <div class="cheatsheet-subtitle">De mayor a menor fuerza:</div>
+            <div class="cheatsheet-list">
+                <div class="cheat-item rank-10">
+                    <span class="cheat-rank">10</span>
+                    <span class="cheat-name">Escalera Real</span>
+                    <span class="cheat-example">A K Q J 10 mismo palo</span>
+                </div>
+                <div class="cheat-item rank-9">
+                    <span class="cheat-rank">9</span>
+                    <span class="cheat-name">Escalera de Color</span>
+                    <span class="cheat-example">5 consecutivas mismo palo</span>
+                </div>
+                <div class="cheat-item rank-8">
+                    <span class="cheat-rank">8</span>
+                    <span class="cheat-name">Póker (Cuarteto)</span>
+                    <span class="cheat-example">4 cartas iguales (ej: K K K K)</span>
+                </div>
+                <div class="cheat-item rank-7">
+                    <span class="cheat-rank">7</span>
+                    <span class="cheat-name">Full House</span>
+                    <span class="cheat-example">Trío + Pareja (ej: Q Q Q 10 10)</span>
+                </div>
+                <div class="cheat-item rank-6">
+                    <span class="cheat-rank">6</span>
+                    <span class="cheat-name">Color (Flush)</span>
+                    <span class="cheat-example">5 cartas del mismo palo</span>
+                </div>
+                <div class="cheat-item rank-5">
+                    <span class="cheat-rank">5</span>
+                    <span class="cheat-name">Escalera</span>
+                    <span class="cheat-example">5 cartas consecutivas</span>
+                </div>
+                <div class="cheat-item rank-4">
+                    <span class="cheat-rank">4</span>
+                    <span class="cheat-name">Trío</span>
+                    <span class="cheat-example">3 cartas iguales (ej: J J J)</span>
+                </div>
+                <div class="cheat-item rank-3">
+                    <span class="cheat-rank">3</span>
+                    <span class="cheat-name">Doble Pareja</span>
+                    <span class="cheat-example">2 parejas (ej: A A y 8 8)</span>
+                </div>
+                <div class="cheat-item rank-2">
+                    <span class="cheat-rank">2</span>
+                    <span class="cheat-name">Pareja</span>
+                    <span class="cheat-example">2 cartas iguales (ej: K K)</span>
+                </div>
+                <div class="cheat-item rank-1">
+                    <span class="cheat-rank">1</span>
+                    <span class="cheat-name">Carta Alta</span>
+                    <span class="cheat-example">Desempate por carta más alta</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dock de Chat Escrito Integrado -->
+    <div id="chat-dock-container" class="chat-dock-container">
+        <button id="btn-toggle-chat" class="btn-toggle-chat" title="Abrir Chat del Equipo">
+            <span>💬</span>
+            <span class="chat-btn-label">Chat</span>
+            <span id="chat-unread-badge" class="chat-unread-badge hidden">0</span>
+        </button>
+
+        <div id="chat-window" class="chat-window hidden">
+            <div class="chat-header">
+                <div class="chat-title">
+                    <span>💬</span> Chat del Equipo
+                </div>
+                <button id="btn-close-chat" class="btn-chat-close">✖</button>
+            </div>
+            <div class="chat-disclaimer">
+                🤫 <strong>Regla:</strong> Prohibido revelar tus cartas.
+            </div>
+            <div id="chat-messages-list" class="chat-messages-list">
+                <!-- Mensajes -->
+            </div>
+            <form id="chat-form" class="chat-input-row">
+                <input type="text" id="chat-input-text" placeholder="Escribe al equipo..." maxlength="120" autocomplete="off">
+                <button type="submit" id="btn-send-chat" class="btn-send-chat">➤</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Emergente "RECUENTO DEL GOLPE" (Showdown Neón) -->
+    <div id="modal-recuento" class="modal-overlay recuento-overlay">
+        <div class="recuento-modal-wrapper">
+            <!-- Barra lateral izquierda: Bóvedas -->
+            <div class="recuento-side-card vault-side">
+                <span class="recuento-side-icon">🏦</span>
+                <div id="recuento-vault-count" class="recuento-side-num">0</div>
+                <div class="recuento-side-lbl">Bóvedas<br>obtenidas</div>
+            </div>
+
+            <!-- Panel central principal -->
+            <div class="recuento-main-panel">
+                <div class="recuento-header">
+                    <h2>RECUENTO DEL GOLPE</h2>
+                    <p id="recuento-subtitle">Evaluando el orden de las apuestas...</p>
+                </div>
+
+                <!-- Pipeline horizontal con N slots y línea láser -->
+                <div class="recuento-pipeline-area">
+                    <div id="recuento-slots-row" class="recuento-slots-row">
+                        <!-- Se inyectan dinámicamente los slots del 1 al N -->
+                    </div>
+                </div>
+
+                <!-- Acciones inferiores del modal -->
+                <div class="recuento-footer-actions">
+                    <button id="btn-recuento-next" class="btn btn-primary hidden">
+                        🃏 Siguiente Ronda
+                    </button>
+                    <button id="btn-recuento-retry" class="btn btn-danger hidden">
+                        🔄 Reintentar Golpe
+                    </button>
+                    <button id="btn-recuento-lobby" class="btn btn-secondary hidden">
+                        Volver al Lobby
+                    </button>
+                </div>
+            </div>
+
+            <!-- Barra lateral derecha: Alarmas -->
+            <div class="recuento-side-card alarm-side">
+                <span class="recuento-side-icon">🚨</span>
+                <div id="recuento-alarm-count" class="recuento-side-num">0</div>
+                <div class="recuento-side-lbl">Alarmas<br>activadas</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Solicitud de Intercambio de Ficha -->
+    <div id="modal-swap-request" class="modal-overlay">
+        <div class="modal-box" style="max-width:440px;text-align:center;">
+            <div class="modal-title" style="font-size:1.4rem;margin-bottom:12px;">🤝 Solicitud de Intercambio</div>
+            <div id="swap-request-content" style="font-size:1rem;color:#e5e7eb;margin-bottom:20px;line-height:1.5;">
+                <!-- Dinámico -->
+            </div>
+            <div style="display:flex;gap:12px;justify-content:center;">
+                <button id="btn-swap-accept" class="btn btn-primary" style="flex:1;">✅ Aceptar</button>
+                <button id="btn-swap-reject" class="btn btn-secondary" style="flex:1;">❌ Rechazar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast flotante de notificación -->
+    <div id="toast-notification" class="toast-notification hidden"></div>
+
+    <!-- Modal de Reglas del Juego -->
+    <div id="modal-rules" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-header">
+                <div class="modal-title">📖 Manual del Golpe (Reglas)</div>
+                <button id="btn-close-rules" class="btn-icon">✖</button>
+            </div>
+            <div class="modal-content">
+                <p><strong>Abrimela si podés</strong> es un juego cooperativo de 3 a 6 jugadores inspirado en las mecánicas de <em>The Gang</em>.</p>
+                
+                <h4 style="color:var(--gold);margin:15px 0 6px;">🎯 Objetivo</h4>
+                <p>Completar <strong>3 golpes exitosos</strong> (abrir 3 cámaras acorazadas 🏦) antes de activar <strong>3 alarmas de seguridad 🚨</strong>. ¡Todos ganan o pierden juntos!</p>
+
+                <h4 style="color:var(--gold);margin:15px 0 6px;">🤫 La Regla de Oro</h4>
+                <p><strong>ESTÁ PROHIBIDO HABLAR DE LAS CARTAS PROPIAS</strong>, mostrarlas o insinuar la combinación que tienes. La única forma de comunicación permitida es tomando o intercambiando las fichas numeradas.</p>
+
+                <h4 style="color:var(--gold);margin:15px 0 6px;">🪙 Fases de Fichas</h4>
+                <ul>
+                    <li><strong>Preflop:</strong> Cartas privadas $\to$ Fichas <strong>Blancas</strong>.</li>
+                    <li><strong>Flop:</strong> 3 comunitarias $\to$ Fichas <strong>Amarillas</strong>.</li>
+                    <li><strong>Turn:</strong> 4.ª comunitaria $\to$ Fichas <strong>Naranjas</strong>.</li>
+                    <li><strong>River:</strong> 5.ª comunitaria $\to$ Fichas <strong>Rojas</strong> (definen el orden final).</li>
+                </ul>
+                <p style="font-size:0.85rem;color:var(--text-muted);">
+                    (Ficha 1 = mano más débil; Ficha más alta = mano más fuerte).
+                </p>
+
+                <h4 style="color:var(--gold);margin:15px 0 6px;">⚔️ La Resolución</h4>
+                <p>Las cartas se revelan automáticamente una a una en orden de las fichas rojas (de 1 a la máxima):</p>
+                <ul>
+                    <li><strong>Éxito 🏦:</strong> Si cada mano es <em>igual o más fuerte</em> que la del jugador anterior, el golpe triunfa y se abre 1 Bóveda.</li>
+                    <li><strong>Fallo 🚨:</strong> Si algún jugador revela una mano <em>más débil</em> que la del anterior, se activó la Alarma.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Fin de Partida (Victoria / Derrota) -->
+    <div id="modal-gameover" class="modal-overlay">
+        <div class="modal-box" style="text-align:center;">
+            <div id="gameover-title" style="font-size:2rem;font-weight:900;margin-bottom:15px;"></div>
+            <p id="gameover-message" style="font-size:1.1rem;margin-bottom:24px;line-height:1.6;"></p>
+            <button id="btn-restart-game" class="btn btn-primary" style="margin:0 auto;">
+                🔄 Jugar Otra Partida
+            </button>
+        </div>
+    </div>
+
+    <!-- Scripts del Juego -->
+    <script src="js/poker.js"></script>
+    <script src="js/sound.js"></script>
+    <script src="js/bot.js"></script>
+    <script src="js/game.js"></script>
+    <script src="js/network.js"></script>
+    <script src="js/app.js"></script>
+
+</body>
+</html>

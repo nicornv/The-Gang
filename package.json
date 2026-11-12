@@ -1,0 +1,15 @@
+{
+  "name": "abrimela-si-podes",
+  "version": "1.0.0",
+  "description": "Abrimela si podés - El gran golpe cooperativo",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": ["poker", "the-gang", "cooperative", "board-game", "webrtc"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
