@@ -10,6 +10,7 @@ let isShowdownRunning = false;
 let peerShowdownFailed = false;
 let currentSpotlightPlayerId = null;
 let pendingSwapRequest = null;
+let isLocalAfk = false;
 
 document.addEventListener('DOMContentLoaded', () => {
     initLobby();
@@ -18,6 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initCheatSheet();
     initChat();
     initSwapModal();
+    initQuickTools();
     checkUrlForRoom();
 });
 
@@ -47,6 +49,7 @@ function initLobby() {
     // Subir foto propia como avatar
     const fileInput = document.getElementById('input-avatar-file');
     const uploadLabel = document.getElementById('btn-upload-avatar');
+    const uploadIcon = document.getElementById('avatar-upload-icon');
 
     fileInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
@@ -69,13 +72,32 @@ function initLobby() {
 
                 document.querySelectorAll('.avatar-btn').forEach(b => b.classList.remove('selected'));
                 uploadLabel.classList.add('selected');
-                uploadLabel.innerHTML = `<img src="${myAvatar}" class="avatar-custom-img"><input type="file" id="input-avatar-file" accept="image/*" style="display:none;">`;
+                if (uploadIcon) {
+                    uploadIcon.innerHTML = `<img src="${myAvatar}" class="avatar-custom-img" alt="avatar">`;
+                }
+                const previewAvatar = document.getElementById('lobby-preview-avatar');
+                if (previewAvatar) {
+                    previewAvatar.innerHTML = `<img src="${myAvatar}" class="avatar-custom-img" alt="avatar">`;
+                }
                 soundManager.playClick();
             };
             img.src = event.target.result;
         };
         reader.readAsDataURL(file);
     });
+
+    // Botón copiar enlace rápido en lobby inicial
+    const btnCopyAppLink = document.getElementById('btn-copy-app-link');
+    if (btnCopyAppLink) {
+        btnCopyAppLink.addEventListener('click', () => {
+            soundManager.playClick();
+            navigator.clipboard.writeText(window.location.href).then(() => {
+                showToast('🔗 ¡Enlace copiado al portapapeles!');
+            }).catch(() => {
+                prompt('Copia este enlace:', window.location.href);
+            });
+        });
+    }
 
     // Pestañas de modo
     const tabs = document.querySelectorAll('.lobby-tab');
@@ -141,15 +163,30 @@ function initLobby() {
 function setupNetwork() {
     network = new GameNetwork({
         onConnected: ({ roomCode, isHost }) => {
-            document.getElementById('lobby-screen').classList.add('hidden');
-            document.getElementById('game-screen').classList.remove('hidden');
             document.getElementById('header-room-info').classList.remove('hidden');
             document.getElementById('room-code-display').textContent = roomCode;
 
+            const waitingCodeEl = document.getElementById('lobby-waiting-code');
+            if (waitingCodeEl) waitingCodeEl.textContent = roomCode;
+
             if (roomCode === 'LOCAL') {
                 document.getElementById('btn-copy-invite').classList.add('hidden');
+                document.getElementById('lobby-screen').classList.add('hidden');
+                document.getElementById('game-screen').classList.remove('hidden');
             } else {
                 document.getElementById('btn-copy-invite').classList.remove('hidden');
+                // En sala online, mostrar la vista de sala de espera en el lobby de 2 paneles
+                const setupView = document.getElementById('lobby-setup-view');
+                const waitingView = document.getElementById('lobby-waiting-view');
+                const configSection = document.getElementById('lobby-config-section');
+                if (setupView) setupView.classList.add('hidden');
+                if (waitingView) waitingView.classList.remove('hidden');
+                if (configSection) configSection.classList.add('hidden');
+
+                const btnLobbyCopy = document.getElementById('btn-lobby-copy-invite');
+                if (btnLobbyCopy) {
+                    btnLobbyCopy.onclick = () => copyRoomInviteLink(roomCode);
+                }
             }
         },
         onStateUpdate: (state, localPid) => {
@@ -197,15 +234,104 @@ function setupNetwork() {
     });
 
     document.getElementById('btn-copy-invite').onclick = () => {
-        soundManager.playClick();
         const code = document.getElementById('room-code-display').textContent;
-        const url = `${window.location.origin}${window.location.pathname}?room=${code}`;
-        navigator.clipboard.writeText(url).then(() => {
-            showToast('📋 ¡Enlace copiado! Pégalo en Discord.');
-        }).catch(() => {
-            prompt('Copia este enlace para tus amigos:', url);
-        });
+        copyRoomInviteLink(code);
     };
+}
+
+function copyRoomInviteLink(code) {
+    soundManager.playClick();
+    const url = `${window.location.origin}${window.location.pathname}?room=${code}`;
+    navigator.clipboard.writeText(url).then(() => {
+        showToast('📋 ¡Enlace de sala copiado! Pégalo en Discord.');
+    }).catch(() => {
+        prompt('Copia este enlace para tus amigos:', url);
+    });
+}
+
+function renderLobbyWaitingRoom(state) {
+    const listEl = document.getElementById('lobby-players-list');
+    const countEl = document.getElementById('lobby-player-count');
+    const statusEl = document.getElementById('lobby-waiting-status');
+    const actionsEl = document.getElementById('lobby-waiting-actions');
+
+    const players = state.players || [];
+    const maxPlayers = 6;
+    if (countEl) countEl.textContent = `${players.length} / ${maxPlayers}`;
+
+    if (listEl) {
+        let html = '';
+        players.forEach((p, idx) => {
+            const isMe = p.id === myPlayerId;
+            const isHostPlayer = idx === 0 && !p.isBot;
+            const tags = [
+                isMe ? '<span class="lobby-role-tag tag-you">Tú</span>' : '',
+                isHostPlayer ? '<span class="lobby-role-tag tag-host">Anfitrión</span>' : '',
+                p.isBot ? '<span class="lobby-role-tag tag-bot">Bot</span>' : ''
+            ].join('');
+
+            html += `
+                <div class="lobby-player-row ${isMe ? 'lobby-player-you' : ''}">
+                    <div class="lobby-player-avatar">${renderAvatarHtml(p.avatar)}</div>
+                    <div class="lobby-player-info">
+                        <div class="lobby-player-name-row">
+                            <span class="lobby-player-name">${p.name}</span>
+                            ${tags}
+                        </div>
+                        <div class="lobby-player-status online">● ${p.isBot ? 'Cómplice IA listo' : 'Conectado'}</div>
+                    </div>
+                </div>
+            `;
+        });
+
+        const emptyCount = Math.max(0, maxPlayers - players.length);
+        if (emptyCount > 0) {
+            html += '<div class="lobby-empty-slots">';
+            for (let i = 0; i < emptyCount; i++) {
+                html += '<div class="lobby-slot-empty">— Espacio disponible —</div>';
+            }
+            html += '</div>';
+        }
+        listEl.innerHTML = html;
+    }
+
+    const isHost = network && network.isHost;
+    if (statusEl) {
+        if (players.length < 3) {
+            statusEl.textContent = `Faltan al menos ${3 - players.length} jugador(es) para iniciar (mínimo 3).`;
+        } else {
+            statusEl.textContent = isHost
+                ? '✅ ¡Equipo listo! Ya podés iniciar el golpe.'
+                : '✅ ¡Equipo listo! Esperando a que el anfitrión inicie el golpe...';
+        }
+    }
+
+    if (actionsEl) {
+        actionsEl.innerHTML = '';
+        if (isHost) {
+            const btnAddBot = document.createElement('button');
+            btnAddBot.type = 'button';
+            btnAddBot.className = 'btn btn-secondary';
+            btnAddBot.innerHTML = '🤖 Añadir Cómplice Bot';
+            btnAddBot.disabled = players.length >= maxPlayers;
+            btnAddBot.onclick = () => {
+                soundManager.playClick();
+                network.addBot();
+            };
+            actionsEl.appendChild(btnAddBot);
+
+            const btnStart = document.createElement('button');
+            btnStart.type = 'button';
+            btnStart.className = 'btn btn-primary btn-play-main';
+            btnStart.innerHTML = '🚀 Iniciar Golpe';
+            btnStart.disabled = players.length < 3;
+            btnStart.onclick = () => {
+                soundManager.playVaultSuccess();
+                network.startNewGame();
+            };
+            actionsEl.appendChild(btnStart);
+        }
+    }
 }
 
 // ==========================================
@@ -214,6 +340,21 @@ function setupNetwork() {
 function renderGame(state) {
     if (!state) return;
 
+    const lobbyScreen = document.getElementById('lobby-screen');
+    const gameScreen = document.getElementById('game-screen');
+
+    // Mientras la sala online siga en fase 'lobby', actualizar el Lobby de 2 paneles
+    if (state.phase === 'lobby' && document.getElementById('room-code-display').textContent !== 'LOCAL') {
+        if (lobbyScreen) lobbyScreen.classList.remove('hidden');
+        if (gameScreen) gameScreen.classList.add('hidden');
+        renderLobbyWaitingRoom(state);
+        return;
+    }
+
+    // Al comenzar la partida, ocultar el lobby y mostrar la mesa de juego
+    if (lobbyScreen) lobbyScreen.classList.add('hidden');
+    if (gameScreen) gameScreen.classList.remove('hidden');
+
     // Si estamos en fases de juego normales, cerrar el modal de recuento si estuviera abierto
     if (['preflop', 'flop', 'turn', 'river'].includes(state.phase)) {
         isShowdownRunning = false;
@@ -221,11 +362,25 @@ function renderGame(state) {
         if (recuentoModal) recuentoModal.classList.remove('active');
     }
 
+    // Detectar inicio de nueva ronda (preflop) para disparar el reparto inicial una sola vez
+    const roundKey = `${state.roundNumber ?? state.vaultsCracked + state.alarmsTriggered}`;
+    const isFreshPreflopDeal = state.phase === 'preflop' && (
+        lastPhaseSeen !== 'preflop' || lastRoundNumber !== roundKey
+    );
+    if (isFreshPreflopDeal) {
+        prevCommunityCount = 0;
+        lastRoundNumber = roundKey;
+        if (typeof soundManager !== 'undefined' && soundManager.playCardDeal) {
+            soundManager.playCardDeal();
+        }
+    }
+    lastPhaseSeen = state.phase;
+
     renderVaultsAndAlarms(state);
     renderPhaseIndicator(state);
     renderCommunityCards(state.communityCards);
     renderChipsRack(state);
-    renderPokerStarsSeats(state);
+    renderPokerStarsSeats(state, isFreshPreflopDeal);
     renderActionControls(state);
 
     // Auto-showdown en River
@@ -301,24 +456,30 @@ function renderPhaseIndicator(state) {
 }
 
 let prevCommunityCount = 0;
-let lastRoundNumber = -1;
+let lastRoundNumber = null;
+let lastPhaseSeen = null;
 
 function renderCommunityCards(cards) {
     const container = document.getElementById('community-cards-container');
     container.innerHTML = '';
 
-    const isNewDeal = cards.length > prevCommunityCount;
+    const safeCards = cards || [];
+    if (safeCards.length < prevCommunityCount) {
+        prevCommunityCount = 0;
+    }
+
+    const isNewDeal = safeCards.length > prevCommunityCount;
     const totalSlots = 5;
 
     for (let i = 0; i < totalSlots; i++) {
-        if (i < cards.length) {
-            const card = cards[i];
+        if (i < safeCards.length) {
+            const card = safeCards[i];
             const isFreshlyDealt = isNewDeal && i >= prevCommunityCount;
             const el = createCardElement(card, {
                 extraClass: isFreshlyDealt ? 'card-anim-flip' : ''
             });
             if (isFreshlyDealt) {
-                el.style.animationDelay = `${(i - prevCommunityCount) * 0.15}s`;
+                el.style.animationDelay = `${(i - prevCommunityCount) * 0.16}s`;
             }
             container.appendChild(el);
         } else {
@@ -330,10 +491,10 @@ function renderCommunityCards(cards) {
         }
     }
 
-    if (isNewDeal && cards.length > 0) {
+    if (isNewDeal && safeCards.length > 0) {
         soundManager.playCardDeal();
     }
-    prevCommunityCount = cards.length;
+    prevCommunityCount = safeCards.length;
 }
 
 // Generador de cartas comunes de póker reales (baraja francesa clásica limpia)
@@ -414,7 +575,7 @@ function renderChipsRack(state) {
 
         chip.innerHTML = `
             <div class="chip-inner-disc">${num}</div>
-            ${holder ? `<div style="font-size:0.65rem;position:absolute;bottom:-18px;white-space:nowrap;font-weight:700;">${renderAvatarMini(holder.avatar)} ${holder.name.split(' ')[0]}</div>` : ''}
+            ${holder ? `<div class="chip-holder-tag">${renderAvatarMini(holder.avatar)} ${holder.name.split(' ')[0]}</div>` : ''}
         `;
 
         chip.onclick = () => {
@@ -441,9 +602,45 @@ function renderAvatarMini(avatar) {
 }
 
 // ========================================================
-// 4. ASIENTOS EXTERIORES DE LA MESA (POKERSTARS CASINO)
+// 4. ASIENTOS EN ARCO ALREDEDOR DE LA MESA (POKERSTARS)
 // ========================================================
-function renderPokerStarsSeats(state) {
+const ARC_SEAT_LAYOUTS = {
+    1: [
+        { left: 50, top: 88, dir: 'dir-bottom' }
+    ],
+    2: [
+        { left: 50, top: 88, dir: 'dir-bottom' },
+        { left: 50, top: 10, dir: 'dir-top' }
+    ],
+    3: [
+        { left: 50, top: 88, dir: 'dir-bottom' },
+        { left: 24, top: 13, dir: 'dir-top' },
+        { left: 76, top: 13, dir: 'dir-top' }
+    ],
+    4: [
+        { left: 50, top: 88, dir: 'dir-bottom' },
+        { left: 10, top: 44, dir: 'dir-left' },
+        { left: 50, top: 10, dir: 'dir-top' },
+        { left: 90, top: 44, dir: 'dir-right' }
+    ],
+    5: [
+        { left: 50, top: 88, dir: 'dir-bottom' },
+        { left: 9, top: 52, dir: 'dir-left' },
+        { left: 27, top: 12, dir: 'dir-top' },
+        { left: 73, top: 12, dir: 'dir-top' },
+        { left: 91, top: 52, dir: 'dir-right' }
+    ],
+    6: [
+        { left: 50, top: 88, dir: 'dir-bottom' },
+        { left: 9, top: 54, dir: 'dir-left' },
+        { left: 22, top: 15, dir: 'dir-top' },
+        { left: 50, top: 8, dir: 'dir-top' },
+        { left: 78, top: 15, dir: 'dir-top' },
+        { left: 91, top: 54, dir: 'dir-right' }
+    ]
+};
+
+function renderPokerStarsSeats(state, animateInitialDeal = false) {
     const seatsContainer = document.getElementById('poker-seats-container');
     seatsContainer.innerHTML = '';
 
@@ -459,7 +656,7 @@ function renderPokerStarsSeats(state) {
     const total = state.players.length;
     if (total === 0) return;
 
-    // Jugador local siempre abajo al centro (6 o'clock)
+    // Jugador local siempre abajo al centro; rivales distribuidos en arco simétrico
     const myIndex = state.players.findIndex(p => p.id === myPlayerId);
     const sortedPlayers = [];
 
@@ -468,49 +665,50 @@ function renderPokerStarsSeats(state) {
         sortedPlayers.push(state.players[idx]);
     }
 
-    sortedPlayers.forEach((player, clockIndex) => {
+    const layout = ARC_SEAT_LAYOUTS[total] || ARC_SEAT_LAYOUTS[6];
+
+    sortedPlayers.forEach((player, seatIndex) => {
         const isMe = (player.id === myPlayerId);
         const pod = document.createElement('div');
         pod.id = `player-pod-${player.id}`;
 
         const isSpotlight = (currentSpotlightPlayerId === player.id);
+        const isAfk = isMe && isLocalAfk;
+        const pos = layout[seatIndex] || { left: 50, top: 12, dir: 'dir-top' };
 
-        // Ubicación por fuera del paño en el perímetro de la arena
-        const angleDeg = 90 + clockIndex * (360 / total);
-        const rad = (angleDeg * Math.PI) / 180;
-
-        // Determinar dirección para que las cartas apunten siempre HACIA ADENTRO de la mesa
-        const normAngle = ((angleDeg % 360) + 360) % 360;
-        let dirClass = 'dir-bottom';
-        if (normAngle >= 65 && normAngle <= 115) {
-            dirClass = 'dir-bottom'; // Abajo: cartas arriba hacia la mesa
-        } else if (normAngle >= 245 && normAngle <= 295) {
-            dirClass = 'dir-top'; // Arriba: cartas abajo hacia la mesa
-        } else if (normAngle > 115 && normAngle < 245) {
-            dirClass = 'dir-left'; // Izquierda: cartas a la derecha hacia la mesa (NO toca el borde izquierdo)
-        } else {
-            dirClass = 'dir-right'; // Derecha: cartas a la izquierda hacia la mesa (NO toca el borde derecho)
-        }
-
-        pod.className = `poker-seat-pod ${dirClass} ${isMe ? 'is-me' : ''} ${player.ready ? 'is-ready' : ''} ${isSpotlight ? 'spotlight-active' : ''}`;
-
-        // Radios calibrados para que nunca toquen el borde ni barras superior/inferior
-        const radiusX = 42; // %
-        const radiusY = 36; // %
-
-        const leftPct = 50 + radiusX * Math.cos(rad);
-        const topPct = 50 + radiusY * Math.sin(rad);
-
-        pod.style.left = `${leftPct}%`;
-        pod.style.top = `${topPct}%`;
+        pod.className = `poker-seat-pod ${pos.dir} ${isMe ? 'is-me' : ''} ${player.ready ? 'is-ready' : ''} ${isSpotlight ? 'spotlight-active' : ''} ${isAfk ? 'is-afk' : ''}`;
+        pod.style.left = `${pos.left}%`;
+        pod.style.top = `${pos.top}%`;
 
         // Cartas: si no le tocó en la resolución y no es el jugador local, se muestran dadas vuelta
         let cardsHtml = '';
         if (player.cards && player.cards.length === 2) {
+            const dealClass = animateInitialDeal ? 'card-deal-in' : '';
+            const card0 = createCardElement(player.cards[0], { extraClass: dealClass });
+            const card1 = createCardElement(player.cards[1], { extraClass: dealClass });
+
+            if (animateInitialDeal) {
+                const dealX = Math.round((50 - pos.left) * 5.2);
+                const dealY = Math.round((50 - pos.top) * 3.6);
+                const baseDelay = seatIndex * 0.14;
+
+                card0.style.setProperty('--deal-x', `${dealX}px`);
+                card0.style.setProperty('--deal-y', `${dealY}px`);
+                card0.style.setProperty('--deal-start-rot', '-24deg');
+                card0.style.setProperty('--deal-end-rot', '-3.5deg');
+                card0.style.animationDelay = `${baseDelay.toFixed(2)}s`;
+
+                card1.style.setProperty('--deal-x', `${dealX}px`);
+                card1.style.setProperty('--deal-y', `${dealY}px`);
+                card1.style.setProperty('--deal-start-rot', '24deg');
+                card1.style.setProperty('--deal-end-rot', '3.5deg');
+                card1.style.animationDelay = `${(baseDelay + 0.08).toFixed(2)}s`;
+            }
+
             cardsHtml = `
                 <div class="seat-cards-row">
-                    ${createCardElement(player.cards[0]).outerHTML}
-                    ${createCardElement(player.cards[1]).outerHTML}
+                    ${card0.outerHTML}
+                    ${card1.outerHTML}
                 </div>
             `;
         }
@@ -546,18 +744,21 @@ function renderPokerStarsSeats(state) {
             ${cardsHtml}
             <div class="seat-main-card">
                 ${rankBadgeHtml}
+                ${isAfk ? '<div class="seat-afk-badge">Ausente</div>' : ''}
                 <div class="seat-avatar-wrap">
                     ${renderAvatarHtml(player.avatar)}
                 </div>
-                <div class="seat-info-col">
-                    <div class="seat-player-name">${player.name} ${isMe ? '(Tú)' : ''}</div>
-                    <div class="seat-status-badge">
-                        ${player.ready ? '✅ Listo' : '⏳ Eligiendo'}
+                <div class="seat-nameplate">
+                    <div class="seat-info-col">
+                        <div class="seat-player-name">${player.name} ${isMe ? '(Tú)' : ''}</div>
+                        <div class="seat-status-badge">
+                            ${player.ready ? '✅ Listo' : '⏳ Eligiendo'}
+                        </div>
                     </div>
+                    ${currentChipHtml}
                 </div>
-                ${currentChipHtml}
+                ${historyHtml}
             </div>
-            ${historyHtml}
         `;
 
         seatsContainer.appendChild(pod);
@@ -1025,13 +1226,65 @@ function showFloatingEmote(playerId, emoji) {
     }, 2000);
 }
 
-document.querySelectorAll('.btn-emote').forEach(btn => {
-    btn.addEventListener('click', () => {
-        const emoji = btn.dataset.emote;
-        soundManager.playClick();
-        if (network) network.sendEmote(emoji);
+function initQuickTools() {
+    const emojiWrapper = document.getElementById('emoji-popover-wrapper');
+    const btnEmojiToggle = document.getElementById('btn-emoji-popover-toggle');
+    const emojiPopover = document.getElementById('emoji-popover');
+    const btnAfkToggle = document.getElementById('btn-afk-toggle');
+    const afkLabel = document.getElementById('afk-toggle-label');
+
+    const closeEmojiPopover = () => {
+        if (!emojiPopover || !btnEmojiToggle) return;
+        emojiPopover.classList.add('hidden');
+        btnEmojiToggle.setAttribute('aria-expanded', 'false');
+    };
+
+    if (btnEmojiToggle && emojiPopover) {
+        btnEmojiToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isHidden = emojiPopover.classList.toggle('hidden');
+            btnEmojiToggle.setAttribute('aria-expanded', String(!isHidden));
+            soundManager.playClick();
+        });
+
+        document.addEventListener('click', (e) => {
+            if (emojiWrapper && !emojiWrapper.contains(e.target)) {
+                closeEmojiPopover();
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeEmojiPopover();
+        });
+    }
+
+    document.querySelectorAll('#emoji-popover .btn-emote').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const emoji = btn.dataset.emote;
+            soundManager.playClick();
+            if (network) network.sendEmote(emoji);
+            closeEmojiPopover();
+        });
     });
-});
+
+    if (btnAfkToggle) {
+        btnAfkToggle.addEventListener('click', () => {
+            isLocalAfk = !isLocalAfk;
+            soundManager.playClick();
+
+            btnAfkToggle.classList.toggle('is-afk', isLocalAfk);
+            btnAfkToggle.setAttribute('aria-pressed', String(isLocalAfk));
+            if (afkLabel) {
+                afkLabel.textContent = isLocalAfk ? 'Volver' : 'Ausente';
+            }
+
+            if (currentGameState) {
+                renderPokerStarsSeats(currentGameState);
+            }
+            showToast(isLocalAfk ? '⏸️ Modo Ausente activado (visual)' : '▶️ Has vuelto a la mesa');
+        });
+    }
+}
 
 function initModals() {
     const btnRules = document.getElementById('btn-rules');
@@ -1099,3 +1352,127 @@ function initSoundToggle() {
         });
     });
 })();
+
+// ========================================================
+// 11. CARTAS ESPECIALES ENTRE RONDAS (VENTAJA / DESVENTAJA)
+// ========================================================
+let specialCardTimers = [];
+
+function clearSpecialCardTimers() {
+    specialCardTimers.forEach(t => clearTimeout(t));
+    specialCardTimers = [];
+}
+
+function hideSpecialCard() {
+    const overlay = document.getElementById('special-card-overlay');
+    const body = document.getElementById('special-card-body');
+    if (!overlay || overlay.classList.contains('hidden')) return;
+
+    clearSpecialCardTimers();
+    overlay.classList.add('is-fading-out');
+    overlay.classList.remove('is-visible');
+
+    const t = setTimeout(() => {
+        overlay.classList.add('hidden');
+        overlay.classList.remove('is-fading-out', 'theme-advantage', 'theme-disadvantage');
+        if (body) body.classList.remove('is-flipped');
+    }, 360);
+    specialCardTimers.push(t);
+}
+
+/**
+ * Muestra una carta especial centrada con animación de entrada, volteo 3D y desvanecimiento.
+ * @param {Object} opts
+ * @param {'advantage'|'disadvantage'} opts.type
+ * @param {string} opts.title
+ * @param {string} opts.description
+ * @param {string} [opts.illustration] Emoji o URL de imagen
+ * @param {number} [opts.duration=3800] Duración visible en ms antes de desvanecerse
+ */
+function showSpecialCard({
+    type = 'advantage',
+    title = 'Carta Especial',
+    description = '',
+    illustration = '🃏',
+    duration = 3800
+} = {}) {
+    const overlay = document.getElementById('special-card-overlay');
+    const body = document.getElementById('special-card-body');
+    const badgeEl = document.getElementById('special-card-badge');
+    const illusEl = document.getElementById('special-card-illustration');
+    const titleEl = document.getElementById('special-card-title');
+    const descEl = document.getElementById('special-card-description');
+
+    if (!overlay || !body) return;
+
+    clearSpecialCardTimers();
+
+    const isAdvantage = type !== 'disadvantage';
+    overlay.classList.remove('hidden', 'is-visible', 'is-fading-out', 'theme-advantage', 'theme-disadvantage');
+    overlay.classList.add(isAdvantage ? 'theme-advantage' : 'theme-disadvantage');
+    body.classList.remove('is-flipped');
+
+    if (badgeEl) badgeEl.textContent = isAdvantage ? '✦ VENTAJA' : '⚠ DESVENTAJA';
+    if (titleEl) titleEl.textContent = title;
+    if (descEl) descEl.textContent = description;
+
+    if (illusEl) {
+        if (illustration && (illustration.startsWith('http') || illustration.startsWith('data:') || illustration.startsWith('assets/'))) {
+            illusEl.innerHTML = `<img src="${illustration}" alt="${title}">`;
+        } else {
+            illusEl.textContent = illustration || (isAdvantage ? '🗝️' : '🚨');
+        }
+    }
+
+    overlay.onclick = () => hideSpecialCard();
+
+    // Forzar reflow para reiniciar transición limpiamente
+    void overlay.offsetWidth;
+    overlay.classList.add('is-visible');
+
+    if (typeof soundManager !== 'undefined' && soundManager.playCardDeal) {
+        soundManager.playCardDeal();
+    }
+
+    // Volteo suave de dorso a frente
+    const flipTimer = setTimeout(() => {
+        body.classList.add('is-flipped');
+    }, 280);
+    specialCardTimers.push(flipTimer);
+
+    // Desvanecimiento automático
+    if (duration > 0) {
+        const hideTimer = setTimeout(() => {
+            hideSpecialCard();
+        }, duration);
+        specialCardTimers.push(hideTimer);
+    }
+}
+
+/**
+ * Función de prueba visual rápida desde consola o futuros eventos entre rondas.
+ * Uso: testSpecialCard('advantage') o testSpecialCard('disadvantage')
+ */
+function testSpecialCard(type = 'advantage') {
+    if (type === 'disadvantage') {
+        showSpecialCard({
+            type: 'disadvantage',
+            title: 'Cámaras Activas',
+            description: 'La seguridad reforzó la bóveda: en esta ronda no podrán intercambiar fichas durante el Turn.',
+            illustration: '📹',
+            duration: 4200
+        });
+    } else {
+        showSpecialCard({
+            type: 'advantage',
+            title: 'Planos Filtrados',
+            description: 'Un informante infiltró los planos del banco: el equipo comienza la ronda con información privilegiada.',
+            illustration: '🗝️',
+            duration: 4200
+        });
+    }
+}
+
+window.showSpecialCard = showSpecialCard;
+window.hideSpecialCard = hideSpecialCard;
+window.testSpecialCard = testSpecialCard;

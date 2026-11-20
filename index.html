@@ -35,49 +35,56 @@
         </div>
     </header>
 
-    <!-- Pantalla de Inicio / Lobby -->
+    <!-- Pantalla de Inicio / Lobby (Estilo Gartic Phone - Dos Paneles Simétricos) -->
     <main id="lobby-screen" class="lobby-screen">
         <div class="lobby-two-panels">
 
-            <!-- PANEL IZQUIERDO: Lista de jugadores en sala -->
-            <div class="lobby-panel lobby-panel-left">
+            <!-- PANEL IZQUIERDO: Jugadores en sala + Perfil local -->
+            <section class="lobby-panel lobby-panel-left">
                 <div class="lobby-panel-header">
-                    <span class="lobby-panel-icon">👥</span>
-                    <span>SALA DE ESPERA</span>
+                    <div class="lobby-header-title">
+                        <span class="lobby-panel-icon">👥</span>
+                        <span>JUGADORES EN SALA</span>
+                    </div>
+                    <span id="lobby-player-count" class="lobby-count-pill">1 / 6</span>
                 </div>
+
                 <div class="lobby-players-list" id="lobby-players-list">
-                    <!-- Se muestra solo en partida online. En offline/solo se oculta -->
                     <div class="lobby-player-row lobby-player-you">
                         <div class="lobby-player-avatar" id="lobby-preview-avatar">🕵️</div>
                         <div class="lobby-player-info">
-                            <div class="lobby-player-name" id="lobby-preview-name">Cerebro</div>
-                            <div class="lobby-player-status online">● Conectado</div>
+                            <div class="lobby-player-name-row">
+                                <span class="lobby-player-name" id="lobby-preview-name">Cerebro</span>
+                                <span class="lobby-role-tag tag-you">Tú</span>
+                            </div>
+                            <div class="lobby-player-status online">● Listo para entrar</div>
                         </div>
                     </div>
                     <div class="lobby-empty-slots">
-                        <div class="lobby-slot-empty">— Vacío —</div>
-                        <div class="lobby-slot-empty">— Vacío —</div>
-                        <div class="lobby-slot-empty">— Vacío —</div>
-                        <div class="lobby-slot-empty">— Vacío —</div>
-                        <div class="lobby-slot-empty">— Vacío —</div>
+                        <div class="lobby-slot-empty">— Espacio disponible —</div>
+                        <div class="lobby-slot-empty">— Espacio disponible —</div>
+                        <div class="lobby-slot-empty">— Espacio disponible —</div>
+                        <div class="lobby-slot-empty">— Espacio disponible —</div>
+                        <div class="lobby-slot-empty">— Espacio disponible —</div>
                     </div>
                 </div>
-                <!-- Configuración de avatar y nombre -->
-                <div class="lobby-config-section">
+
+                <!-- Configuración de perfil local -->
+                <div id="lobby-config-section" class="lobby-config-section">
                     <div class="input-group">
-                        <label>Nombre del Agente:</label>
+                        <label for="input-player-name">Nombre del Agente:</label>
                         <input type="text" id="input-player-name" placeholder="Ej: Maestro, La Furia..." maxlength="15" value="Cerebro">
                     </div>
-                    <div class="input-group">
+                    <div class="input-group" style="margin-bottom:0;">
                         <label>Elige tu Avatar:</label>
                         <div class="avatar-selector">
-                            <button class="avatar-btn selected" data-avatar="🕵️">🕵️</button>
-                            <button class="avatar-btn" data-avatar="🧠">🧠</button>
-                            <button class="avatar-btn" data-avatar="🕶️">🕶️</button>
-                            <button class="avatar-btn" data-avatar="💻">💻</button>
-                            <button class="avatar-btn" data-avatar="🔑">🔑</button>
-                            <button class="avatar-btn" data-avatar="🧨">🧨</button>
-                            <button class="avatar-btn" data-avatar="🏎️">🏎️</button>
+                            <button type="button" class="avatar-btn selected" data-avatar="🕵️">🕵️</button>
+                            <button type="button" class="avatar-btn" data-avatar="🧠">🧠</button>
+                            <button type="button" class="avatar-btn" data-avatar="🕶️">🕶️</button>
+                            <button type="button" class="avatar-btn" data-avatar="💻">💻</button>
+                            <button type="button" class="avatar-btn" data-avatar="🔑">🔑</button>
+                            <button type="button" class="avatar-btn" data-avatar="🧨">🧨</button>
+                            <button type="button" class="avatar-btn" data-avatar="🏎️">🏎️</button>
                             <label class="avatar-btn avatar-upload-label" id="btn-upload-avatar" title="Subir foto propia">
                                 <input type="file" id="input-avatar-file" accept="image/*" style="display:none;">
                                 <span id="avatar-upload-icon">📷</span>
@@ -85,70 +92,92 @@
                         </div>
                     </div>
                 </div>
-            </div>
+            </section>
 
-            <!-- PANEL DERECHO: Controles de sala -->
-            <div class="lobby-panel lobby-panel-right">
-                <div class="lobby-panel-header">
+            <!-- PANEL DERECHO: Panel de Sala y Controles -->
+            <section class="lobby-panel lobby-panel-right">
+                <div class="lobby-panel-header lobby-brand-header">
                     <img src="assets/logo.png" alt="Logo" class="lobby-logo-img">
                     <div>
                         <h2>Abrimela si podés</h2>
-                        <p>El gran golpe cooperativo</p>
+                        <p>El gran golpe cooperativo • 3 a 6 jugadores</p>
                     </div>
                 </div>
 
-                <!-- Tabs de modo -->
-                <div class="lobby-tabs">
-                    <button id="tab-create" class="lobby-tab btn btn-secondary active">🌐 Crear Sala</button>
-                    <button id="tab-join" class="lobby-tab btn btn-secondary">🚪 Unirse</button>
-                    <button id="tab-solo" class="lobby-tab btn btn-secondary">🤖 Solo</button>
-                </div>
-
-                <!-- Sección Crear Sala -->
-                <div id="section-create" class="lobby-actions">
-                    <button id="btn-create-room" class="btn btn-primary">
-                        <span>🌐</span> Crear Sala Multijugador Online
-                    </button>
-                    <p class="lobby-hint">Crea una sala y comparte el enlace directo con tus amigos de Discord.</p>
-                </div>
-
-                <!-- Sección Unirse a Sala -->
-                <div id="section-join" class="lobby-actions hidden">
-                    <div class="input-group">
-                        <label>Código de Sala:</label>
-                        <input type="text" id="input-join-code" placeholder="Ej: GOLPE" style="text-transform:uppercase;">
+                <!-- Vista A: Configuración inicial (Crear / Unirse / Solo) -->
+                <div id="lobby-setup-view" class="lobby-right-body">
+                    <div class="lobby-tabs">
+                        <button type="button" id="tab-create" class="lobby-tab btn btn-secondary active">🌐 Crear Sala</button>
+                        <button type="button" id="tab-join" class="lobby-tab btn btn-secondary">🚪 Unirse</button>
+                        <button type="button" id="tab-solo" class="lobby-tab btn btn-secondary">🤖 Solo</button>
                     </div>
-                    <button id="btn-join-room" class="btn btn-primary">
-                        <span>🚪</span> Entrar al Golpe
-                    </button>
+
+                    <!-- Sección Crear Sala -->
+                    <div id="section-create" class="lobby-actions">
+                        <div class="lobby-mode-card">
+                            <p class="lobby-hint">Creá una sala privada P2P, sumá a tus amigos con el código o enlace directo y completá lugares con bots si hace falta.</p>
+                        </div>
+                        <button type="button" id="btn-create-room" class="btn btn-primary btn-play-main">
+                            <span>🌐</span> Crear Sala Multijugador Online
+                        </button>
+                    </div>
+
+                    <!-- Sección Unirse a Sala -->
+                    <div id="section-join" class="lobby-actions hidden">
+                        <div class="input-group">
+                            <label for="input-join-code">Código de Sala:</label>
+                            <input type="text" id="input-join-code" placeholder="Ej: GOLPE" style="text-transform:uppercase;">
+                        </div>
+                        <button type="button" id="btn-join-room" class="btn btn-primary btn-play-main">
+                            <span>🚪</span> Entrar al Golpe
+                        </button>
+                    </div>
+
+                    <!-- Sección Jugar Solo con Bots -->
+                    <div id="section-solo" class="lobby-actions hidden">
+                        <div class="input-group">
+                            <label for="select-bot-count">Cantidad de Cómplices Bots (2 a 5):</label>
+                            <select id="select-bot-count" class="custom-select">
+                                <option value="2">2 Bots (Total 3 jugadores)</option>
+                                <option value="3" selected>3 Bots (Total 4 jugadores)</option>
+                                <option value="4">4 Bots (Total 5 jugadores)</option>
+                                <option value="5">5 Bots (Total 6 jugadores)</option>
+                            </select>
+                        </div>
+                        <button type="button" id="btn-start-solo" class="btn btn-primary btn-play-main">
+                            <span>🤖</span> Jugar Ahora con Bots
+                        </button>
+                    </div>
+
+                    <div class="lobby-invite-area">
+                        <div class="lobby-divider">
+                            <span>acceso rápido</span>
+                        </div>
+                        <button type="button" id="btn-copy-app-link" class="btn btn-secondary lobby-invite-btn">
+                            🔗 Copiar Enlace del Juego
+                        </button>
+                    </div>
                 </div>
 
-                <!-- Sección Jugar Solo con Bots -->
-                <div id="section-solo" class="lobby-actions hidden">
-                    <div class="input-group">
-                        <label>Cantidad de Cómplices Bots (2 a 5):</label>
-                        <select id="select-bot-count" class="custom-select">
-                            <option value="2">2 Bots (Total 3 jugadores)</option>
-                            <option value="3" selected>3 Bots (Total 4 jugadores)</option>
-                            <option value="4">4 Bots (Total 5 jugadores)</option>
-                            <option value="5">5 Bots (Total 6 jugadores)</option>
-                        </select>
+                <!-- Vista B: Sala de Espera Activa (antes de iniciar partida online) -->
+                <div id="lobby-waiting-view" class="lobby-right-body hidden">
+                    <div class="lobby-room-code-card">
+                        <span class="room-code-label">CÓDIGO DE SALA</span>
+                        <div id="lobby-waiting-code" class="room-code-big">----</div>
+                        <button type="button" id="btn-lobby-copy-invite" class="btn btn-secondary lobby-invite-btn">
+                            📋 Copiar Enlace de Invitación
+                        </button>
                     </div>
-                    <button id="btn-start-solo" class="btn btn-primary">
-                        <span>🤖</span> Jugar Ahora con Bots
-                    </button>
-                </div>
 
-                <!-- Invitación -->
-                <div class="lobby-invite-area">
-                    <div class="lobby-divider">
-                        <span>o comparte directamente</span>
+                    <div id="lobby-waiting-status" class="lobby-waiting-status">
+                        Esperando jugadores (mínimo 3 para iniciar el golpe)...
                     </div>
-                    <button class="btn btn-secondary lobby-invite-btn" onclick="navigator.clipboard.writeText(window.location.href).catch(()=>{})">
-                        🔗 Copiar Enlace de Sala
-                    </button>
+
+                    <div id="lobby-waiting-actions" class="lobby-waiting-actions">
+                        <!-- Controles dinámicos del Anfitrión / Invitado -->
+                    </div>
                 </div>
-            </div>
+            </section>
 
         </div>
     </main>
@@ -230,15 +259,32 @@
                 </div>
             </div>
 
-            <!-- Reacciones / Emotes Rápidos -->
-            <div class="emotes-bar">
-                <button class="btn-emote" data-emote="👀" title="Observar">👀</button>
-                <button class="btn-emote" data-emote="🤔" title="Duda">🤔</button>
-                <button class="btn-emote" data-emote="😅" title="Nervios">😅</button>
-                <button class="btn-emote" data-emote="😱" title="Pánico">😱</button>
-                <button class="btn-emote" data-emote="🤞" title="Suerte">🤞</button>
-                <button class="btn-emote" data-emote="💰" title="Millonarios">💰</button>
-                <button class="btn-emote" data-emote="🚨" title="Peligro">🚨</button>
+            <!-- Controles Visuales Rápidos: Popover de Emojis + Toggle Ausente (AFK) -->
+            <div class="player-quick-tools">
+                <div class="emoji-popover-wrapper" id="emoji-popover-wrapper">
+                    <button type="button" id="btn-emoji-popover-toggle" class="btn-tool-pill" title="Enviar reacción" aria-expanded="false" aria-controls="emoji-popover">
+                        <span>😊</span>
+                        <span class="tool-pill-label">Emojis</span>
+                    </button>
+                    <div id="emoji-popover" class="emoji-popover hidden" role="menu" aria-label="Selector de emojis">
+                        <div class="emoji-popover-title">Reacciones rápidas</div>
+                        <div class="emoji-popover-grid">
+                            <button type="button" class="btn-emote" data-emote="👀" title="Observar">👀</button>
+                            <button type="button" class="btn-emote" data-emote="🤔" title="Duda">🤔</button>
+                            <button type="button" class="btn-emote" data-emote="😅" title="Nervios">😅</button>
+                            <button type="button" class="btn-emote" data-emote="😱" title="Pánico">😱</button>
+                            <button type="button" class="btn-emote" data-emote="🤞" title="Suerte">🤞</button>
+                            <button type="button" class="btn-emote" data-emote="💰" title="Millonarios">💰</button>
+                            <button type="button" class="btn-emote" data-emote="🚨" title="Peligro">🚨</button>
+                            <button type="button" class="btn-emote" data-emote="🔥" title="En racha">🔥</button>
+                        </div>
+                    </div>
+                </div>
+
+                <button type="button" id="btn-afk-toggle" class="btn-tool-pill btn-afk-toggle" title="Retirarse momentáneamente (Ausente)" aria-pressed="false">
+                    <span class="afk-icon">⏸️</span>
+                    <span class="tool-pill-label" id="afk-toggle-label">Ausente</span>
+                </button>
             </div>
 
             <!-- Botones de Acción de Fase -->
@@ -429,10 +475,10 @@
 
                 <h4 style="color:var(--gold);margin:15px 0 6px;">🪙 Fases de Fichas</h4>
                 <ul>
-                    <li><strong>Preflop:</strong> Cartas privadas $\to$ Fichas <strong>Blancas</strong>.</li>
-                    <li><strong>Flop:</strong> 3 comunitarias $\to$ Fichas <strong>Amarillas</strong>.</li>
-                    <li><strong>Turn:</strong> 4.ª comunitaria $\to$ Fichas <strong>Naranjas</strong>.</li>
-                    <li><strong>River:</strong> 5.ª comunitaria $\to$ Fichas <strong>Rojas</strong> (definen el orden final).</li>
+                    <li><strong>Preflop:</strong> Cartas privadas → Fichas <strong>Blancas</strong>.</li>
+                    <li><strong>Flop:</strong> 3 comunitarias → Fichas <strong>Amarillas</strong>.</li>
+                    <li><strong>Turn:</strong> 4.ª comunitaria → Fichas <strong>Naranjas</strong>.</li>
+                    <li><strong>River:</strong> 5.ª comunitaria → Fichas <strong>Rojas</strong> (definen el orden final).</li>
                 </ul>
                 <p style="font-size:0.85rem;color:var(--text-muted);">
                     (Ficha 1 = mano más débil; Ficha más alta = mano más fuerte).
@@ -456,6 +502,29 @@
             <button id="btn-restart-game" class="btn btn-primary" style="margin:0 auto;">
                 🔄 Jugar Otra Partida
             </button>
+        </div>
+    </div>
+
+    <!-- Overlay de Cartas Especiales entre Rondas (Ventaja / Desventaja) -->
+    <div id="special-card-overlay" class="special-card-overlay hidden" role="dialog" aria-modal="true" aria-live="polite">
+        <div class="special-card-scene">
+            <div id="special-card-body" class="special-card-body">
+                <!-- Dorso de la carta especial -->
+                <div class="special-card-face special-card-back">
+                    <div class="special-card-back-inner">
+                        <span class="special-card-back-emblem">♠</span>
+                        <span class="special-card-back-label">EVENTO DE RONDA</span>
+                    </div>
+                </div>
+                <!-- Frente de la carta especial -->
+                <div class="special-card-face special-card-front">
+                    <div id="special-card-badge" class="special-card-badge">VENTAJA</div>
+                    <div id="special-card-illustration" class="special-card-illustration">🃏</div>
+                    <h3 id="special-card-title" class="special-card-title">Título de Carta</h3>
+                    <p id="special-card-description" class="special-card-description">Descripción del efecto de la ronda.</p>
+                    <span class="special-card-dismiss-hint">Clic para continuar</span>
+                </div>
+            </div>
         </div>
     </div>
 
