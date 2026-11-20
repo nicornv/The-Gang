@@ -392,7 +392,7 @@ function renderGame(state) {
     );
     if (isFreshPreflopDeal) {
         prevCommunityCount = 0;
-        lastCommunitySignature = '';
+        lastCommunitySignature = null;
         lastRoundNumber = roundKey;
     }
     lastPhaseSeen = state.phase;
@@ -481,7 +481,7 @@ function renderPhaseIndicator(state) {
 }
 
 let prevCommunityCount = 0;
-let lastCommunitySignature = '';
+let lastCommunitySignature = null;
 let lastRoundNumber = null;
 let lastPhaseSeen = null;
 
@@ -1429,7 +1429,7 @@ function leaveGameToLobby(showFeedback = true) {
     pendingSwapRequest = null;
     isLocalAfk = false;
     prevCommunityCount = 0;
-    lastCommunitySignature = '';
+    lastCommunitySignature = null;
     lastRoundNumber = null;
     lastPhaseSeen = null;
 
