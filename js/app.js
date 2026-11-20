@@ -606,37 +606,37 @@ function renderAvatarMini(avatar) {
 // ========================================================
 const ARC_SEAT_LAYOUTS = {
     1: [
-        { left: 50, top: 88, dir: 'dir-bottom' }
+        { left: 50, top: 86, dir: 'dir-bottom' }
     ],
     2: [
-        { left: 50, top: 88, dir: 'dir-bottom' },
-        { left: 50, top: 10, dir: 'dir-top' }
+        { left: 50, top: 86, dir: 'dir-bottom' },
+        { left: 50, top: 14, dir: 'dir-top' }
     ],
     3: [
-        { left: 50, top: 88, dir: 'dir-bottom' },
-        { left: 24, top: 13, dir: 'dir-top' },
-        { left: 76, top: 13, dir: 'dir-top' }
+        { left: 50, top: 86, dir: 'dir-bottom' },
+        { left: 26, top: 16, dir: 'dir-top' },
+        { left: 74, top: 16, dir: 'dir-top' }
     ],
     4: [
-        { left: 50, top: 88, dir: 'dir-bottom' },
-        { left: 10, top: 44, dir: 'dir-left' },
-        { left: 50, top: 10, dir: 'dir-top' },
-        { left: 90, top: 44, dir: 'dir-right' }
+        { left: 50, top: 86, dir: 'dir-bottom' },
+        { left: 11, top: 48, dir: 'dir-left' },
+        { left: 50, top: 14, dir: 'dir-top' },
+        { left: 89, top: 48, dir: 'dir-right' }
     ],
     5: [
-        { left: 50, top: 88, dir: 'dir-bottom' },
-        { left: 9, top: 52, dir: 'dir-left' },
-        { left: 27, top: 12, dir: 'dir-top' },
-        { left: 73, top: 12, dir: 'dir-top' },
-        { left: 91, top: 52, dir: 'dir-right' }
+        { left: 50, top: 86, dir: 'dir-bottom' },
+        { left: 10, top: 53, dir: 'dir-left' },
+        { left: 27, top: 15, dir: 'dir-top' },
+        { left: 73, top: 15, dir: 'dir-top' },
+        { left: 90, top: 53, dir: 'dir-right' }
     ],
     6: [
-        { left: 50, top: 88, dir: 'dir-bottom' },
-        { left: 9, top: 54, dir: 'dir-left' },
-        { left: 22, top: 15, dir: 'dir-top' },
-        { left: 50, top: 8, dir: 'dir-top' },
-        { left: 78, top: 15, dir: 'dir-top' },
-        { left: 91, top: 54, dir: 'dir-right' }
+        { left: 50, top: 86, dir: 'dir-bottom' },
+        { left: 10, top: 55, dir: 'dir-left' },
+        { left: 23, top: 18, dir: 'dir-top' },
+        { left: 50, top: 13, dir: 'dir-top' },
+        { left: 77, top: 18, dir: 'dir-top' },
+        { left: 90, top: 55, dir: 'dir-right' }
     ]
 };
 
