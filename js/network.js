@@ -1,5 +1,15 @@
 // network.js - Capa de comunicación PeerJS (WebRTC P2P) y modo Local
 
+// Configuración centralizada del broker de PeerJS (por defecto: nube oficial de PeerJS)
+const PEERJS_BROKER_CONFIG = {
+    // Si se desea usar un PeerServer propio, configurar host, port, path y secure:
+    // host: 'mi-servidor.ejemplo.com',
+    // port: 443,
+    // path: '/peerjs',
+    // secure: true
+    debug: 1
+};
+
 class GameNetwork {
     constructor(callbacks = {}) {
         this.callbacks = Object.assign({
@@ -30,6 +40,7 @@ class GameNetwork {
         this.pendingSwapRequests = new Map(); // targetPlayerId -> { requesterId, requestedChip, offeredChip, timestamp }
         this.chatRateLimits = new Map(); // playerId -> [timestamps]
         this.maxConnections = 8; // maxPlayers (6) + margen
+        this.isMigrated = false; // Indica si la sala sufrió migración de host
     }
 
     generateSecureToken() {
@@ -74,9 +85,7 @@ class GameNetwork {
         }
 
         try {
-            this.peer = new Peer(peerId, {
-                debug: 1
-            });
+            this.peer = new Peer(peerId, Object.assign({}, PEERJS_BROKER_CONFIG));
         } catch (err) {
             this.callbacks.onError(`Error al inicializar PeerJS: ${err.message}`);
             return;
@@ -402,7 +411,7 @@ class GameNetwork {
         }
 
         try {
-            this.peer = new Peer({ debug: 1 });
+            this.peer = new Peer(Object.assign({}, PEERJS_BROKER_CONFIG));
         } catch (err) {
             this.callbacks.onError(`Error al inicializar conexión: ${err.message}`);
             return;
@@ -496,8 +505,12 @@ class GameNetwork {
     }
 
     handleHostMigration(msg) {
+        this.isMigrated = true;
         this.isMigratingHost = true;
         this.callbacks.onPlayerLeft(msg.leftPlayerId, msg.leftPlayerName);
+        if (typeof this.callbacks.onHostMigrated === 'function') {
+            this.callbacks.onHostMigrated();
+        }
 
         if (this.localPlayerId === msg.newHostId || msg.isNewHost) {
             // Este invitado asume automáticamente como nuevo Host de la partida
@@ -521,41 +534,87 @@ class GameNetwork {
                 try { this.peer.destroy(); } catch (e) {}
             }
             try {
-                this.peer = new Peer(msg.newHostPeerId, { debug: 1 });
+                this.peer = new Peer(msg.newHostPeerId, Object.assign({}, PEERJS_BROKER_CONFIG));
+                this.peer.on('open', () => {
+                    console.log('Nuevo Host inicializado con Peer ID:', msg.newHostPeerId);
+                    this.isMigratingHost = false;
+                });
                 this.peer.on('connection', (conn) => {
                     this.handleIncomingConnection(conn);
                 });
+                this.peer.on('error', (err) => {
+                    console.error('Error en nuevo Host:', err);
+                    this.callbacks.onError(`Error al asumir como nuevo anfitrión: ${err.type || err.message}`);
+                });
             } catch (e) {
                 console.error('Error al migrar Host:', e);
+                this.callbacks.onError(`Error al inicializar el nuevo anfitrión: ${e.message}`);
             }
-            this.isMigratingHost = false;
         } else {
             // Los demás invitados actualizan su mesa con su estado sanitizado (sin ver cartas ajenas)
             if (msg.sanitizedState) {
                 this.callbacks.onStateUpdate(msg.sanitizedState, this.localPlayerId);
             }
 
-            setTimeout(() => {
-                if (!this.peer || this.isExiting) return;
-                const conn = this.peer.connect(msg.newHostPeerId, { reliable: true });
-                this.hostConn = conn;
-                conn.on('open', () => {
-                    this.isMigratingHost = false;
-                    conn.send({
-                        type: 'REJOIN_MIGRATED_HOST',
-                        playerId: this.localPlayerId,
-                        rejoinToken: this.rejoinToken
-                    });
-                });
-                conn.on('data', (data) => {
-                    this.handleGuestReceivedData(data);
-                });
-                conn.on('close', () => {
-                    if (this.isMigratingHost || this.isExiting) return;
-                    this.callbacks.onError('Se perdió la conexión con el anfitrión de la sala.');
-                });
-            }, 350);
+            // Reintento con backoff exponencial para reconectar al nuevo host
+            this.reconnectToNewHost(msg.newHostPeerId, 1, 300);
         }
+    }
+
+    reconnectToNewHost(newHostPeerId, attempt = 1, delay = 300) {
+        const MAX_ATTEMPTS = 6;
+        if (!this.peer || this.isExiting) return;
+
+        if (attempt === 1 && typeof showToast === 'function') {
+            showToast('🔄 Reconectando con el nuevo anfitrión...');
+        }
+
+        setTimeout(() => {
+            if (!this.peer || this.isExiting) return;
+
+            const conn = this.peer.connect(newHostPeerId, { reliable: true });
+            this.hostConn = conn;
+            let connected = false;
+
+            conn.on('open', () => {
+                connected = true;
+                this.isMigratingHost = false;
+                if (typeof showToast === 'function') {
+                    showToast('✅ ¡Reconectado con éxito al nuevo anfitrión!');
+                }
+                conn.send({
+                    type: 'REJOIN_MIGRATED_HOST',
+                    playerId: this.localPlayerId,
+                    rejoinToken: this.rejoinToken
+                });
+            });
+
+            conn.on('data', (data) => {
+                this.handleGuestReceivedData(data);
+            });
+
+            conn.on('close', () => {
+                if (this.isMigratingHost || this.isExiting) return;
+                this.callbacks.onError('Se perdió la conexión con el nuevo anfitrión de la sala.');
+            });
+
+            conn.on('error', (err) => {
+                console.warn(`Intento ${attempt} de reconexión fallido:`, err);
+            });
+
+            // Si no conectó en el tiempo esperado, reintentar con backoff exponencial
+            setTimeout(() => {
+                if (!connected && !this.isExiting && this.isMigratingHost) {
+                    if (attempt < MAX_ATTEMPTS) {
+                        const nextDelay = Math.min(3000, Math.round(delay * 1.6));
+                        this.reconnectToNewHost(newHostPeerId, attempt + 1, nextDelay);
+                    } else {
+                        this.isMigratingHost = false;
+                        this.callbacks.onError('No se pudo reconectar con el nuevo anfitrión tras varios intentos.');
+                    }
+                }
+            }, Math.max(delay + 200, 500));
+        }, delay);
     }
 
     // Acciones del jugador local (ya sea Host o Guest)
@@ -828,12 +887,20 @@ class GameNetwork {
         }
 
         if (this.isHost && this.connections) {
-            for (const conn of this.connections.values()) {
-                try { conn.close(); } catch (e) {}
-            }
-            this.connections.clear();
-        }
-        if (this.peer) {
+            // Dar una pequeña ventana para que los mensajes WebRTC pendientes se envíen
+            setTimeout(() => {
+                if (this.connections) {
+                    for (const conn of this.connections.values()) {
+                        try { conn.close(); } catch (e) {}
+                    }
+                    this.connections.clear();
+                }
+                if (this.peer) {
+                    try { this.peer.destroy(); } catch (e) {}
+                    this.peer = null;
+                }
+            }, 150);
+        } else if (this.peer) {
             try { this.peer.destroy(); } catch (e) {}
             this.peer = null;
         }

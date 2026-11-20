@@ -115,7 +115,8 @@ const server = http.createServer((req, res) => {
         'Content-Type': contentType,
         'X-Content-Type-Options': 'nosniff',
         'Referrer-Policy': 'no-referrer',
-        'Cache-Control': 'no-cache'
+        'Cache-Control': 'no-cache',
+        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self' https://0.peerjs.com wss://0.peerjs.com https://*.peerjs.com wss://*.peerjs.com;"
     };
 
     fs.stat(filePath, (statErr, stats) => {

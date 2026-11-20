@@ -253,17 +253,44 @@ function setupNetwork() {
                 isShowdownRunning = false;
                 peerShowdownFailed = false;
             }
+        },
+        onHostMigrated: () => {
+            const btnCopy = document.getElementById('btn-copy-invite');
+            if (btnCopy) {
+                btnCopy.disabled = true;
+                btnCopy.style.opacity = '0.5';
+                btnCopy.style.cursor = 'not-allowed';
+                btnCopy.title = 'El anfitrión original abandonó la partida. Nuevos jugadores no pueden unirse con el código anterior.';
+            }
         }
     });
 
     document.getElementById('btn-copy-invite').onclick = () => {
         soundManager.playClick();
+        if (network && network.isMigrated) {
+            showToast('⚠️ El anfitrión original abandonó la partida. Nuevos jugadores no pueden unirse con el código anterior.');
+            return;
+        }
+
         const code = document.getElementById('room-code-display').textContent;
-        const url = `${window.location.origin}${window.location.pathname}?room=${code}`;
-        navigator.clipboard.writeText(url).then(() => {
-            showToast('📋 ¡Enlace copiado! Pégalo en Discord.');
+        // Construir URL desde location.href sin query ni hash
+        const baseUrl = window.location.href.split('?')[0].split('#')[0];
+        const inviteUrl = `${baseUrl}?room=${code}`;
+
+        const isLocalHost = window.location.hostname === 'localhost' ||
+                            window.location.hostname === '127.0.0.1' ||
+                            window.location.hostname.startsWith('192.168.') ||
+                            window.location.hostname.startsWith('10.');
+        const isFileProtocol = window.location.protocol === 'file:';
+
+        navigator.clipboard.writeText(inviteUrl).then(() => {
+            if (isFileProtocol || isLocalHost) {
+                showToast(`📋 Enlace copiado. ⚠️ Nota: Para unirse desde otra PC, comparte solo el código "${code}" o aloja el juego en un servidor público.`);
+            } else {
+                showToast('📋 ¡Enlace copiado! Pégalo en Discord.');
+            }
         }).catch(() => {
-            prompt('Copia este enlace para tus amigos:', url);
+            prompt(`Copia el enlace o código (${code}) para tus amigos:`, inviteUrl);
         });
     };
 }
