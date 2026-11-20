@@ -101,10 +101,11 @@ class GameNetwork {
 
         conn.on('close', () => {
             const playerId = conn.metadata && conn.metadata.playerId;
-            if (playerId) {
-                this.game.removePlayer(playerId);
+            if (playerId && this.connections.has(playerId)) {
+                const res = this.game.removePlayer(playerId);
                 this.connections.delete(playerId);
-                this.callbacks.onPlayerLeft(playerId);
+                const leftName = res && res.player ? res.player.name : 'Un agente';
+                this.notifyPlayerLeftToAll(playerId, leftName);
                 this.broadcastState();
             }
         });
@@ -208,6 +209,54 @@ class GameNetwork {
                 }
                 break;
             }
+
+            case 'LEAVE_ROOM': {
+                const pid = conn.metadata ? conn.metadata.playerId : null;
+                if (pid) {
+                    this.connections.delete(pid);
+                    const res = this.game.removePlayer(pid);
+                    if (res && res.success) {
+                        const leftName = res.player ? res.player.name : 'Un agente';
+                        this.notifyPlayerLeftToAll(pid, leftName);
+                        this.broadcastState();
+                    }
+                }
+                break;
+            }
+
+            case 'REJOIN_MIGRATED_HOST': {
+                const pid = msg.playerId;
+                if (pid) {
+                    conn.metadata = { playerId: pid };
+                    this.connections.set(pid, conn);
+                    this.broadcastState();
+                }
+                break;
+            }
+
+            case 'UPDATE_PROFILE': {
+                const pid = conn.metadata ? conn.metadata.playerId : null;
+                if (pid && this.game) {
+                    this.game.updatePlayerProfile(pid, msg.name, msg.avatar);
+                    this.broadcastState();
+                }
+                break;
+            }
+        }
+    }
+
+    notifyPlayerLeftToAll(playerId, playerName) {
+        const remainingCount = this.game ? this.game.players.length : 0;
+        this.callbacks.onPlayerLeft(playerId, playerName, remainingCount);
+        for (const conn of this.connections.values()) {
+            if (conn.open) {
+                conn.send({
+                    type: 'PLAYER_LEFT_NOTICE',
+                    playerId,
+                    playerName,
+                    remainingCount
+                });
+            }
         }
     }
 
@@ -248,6 +297,7 @@ class GameNetwork {
             });
 
             conn.on('close', () => {
+                if (this.isMigratingHost || this.isExiting) return;
                 this.callbacks.onError('Se perdió la conexión con el anfitrión de la sala.');
             });
 
@@ -304,6 +354,73 @@ class GameNetwork {
             case 'SHOWDOWN_STEP':
                 this.callbacks.onShowdownStep(msg.stepResult);
                 break;
+
+            case 'PLAYER_LEFT_NOTICE':
+                this.callbacks.onPlayerLeft(msg.playerId, msg.playerName, msg.remainingCount);
+                break;
+
+            case 'HOST_MIGRATION':
+                this.handleHostMigration(msg);
+                break;
+        }
+    }
+
+    handleHostMigration(msg) {
+        this.isMigratingHost = true;
+        const remainingCount = (msg.fullGameData && msg.fullGameData.players) ? msg.fullGameData.players.length : 0;
+        this.callbacks.onPlayerLeft(msg.leftPlayerId, msg.leftPlayerName, remainingCount);
+
+        const tempGame = new OperacionBovedaGame({
+            onStateChange: () => this.broadcastState()
+        });
+        tempGame.restoreFromSerialized(msg.fullGameData);
+
+        if (this.localPlayerId === msg.newHostId) {
+            // Este invitado asume automáticamente como nuevo Host de la partida
+            this.isHost = true;
+            this.game = tempGame;
+            this.connections = new Map();
+            this.hostConn = null;
+
+            // Actualizar de inmediato la pantalla del nuevo Host con la mesa reacomodada
+            this.broadcastState();
+
+            if (this.peer) {
+                try { this.peer.destroy(); } catch (e) {}
+            }
+            try {
+                this.peer = new Peer(msg.newHostPeerId, { debug: 1 });
+                this.peer.on('connection', (conn) => {
+                    this.handleIncomingConnection(conn);
+                });
+            } catch (e) {
+                console.error('Error al migrar Host:', e);
+            }
+            this.isMigratingHost = false;
+        } else {
+            // Los demás invitados actualizan su mesa de inmediato y se reconectan al nuevo Host
+            const myState = tempGame.getStateForPlayer(this.localPlayerId);
+            this.callbacks.onStateUpdate(myState, this.localPlayerId);
+
+            setTimeout(() => {
+                if (!this.peer || this.isExiting) return;
+                const conn = this.peer.connect(msg.newHostPeerId, { reliable: true });
+                this.hostConn = conn;
+                conn.on('open', () => {
+                    this.isMigratingHost = false;
+                    conn.send({
+                        type: 'REJOIN_MIGRATED_HOST',
+                        playerId: this.localPlayerId
+                    });
+                });
+                conn.on('data', (data) => {
+                    this.handleGuestReceivedData(data);
+                });
+                conn.on('close', () => {
+                    if (this.isMigratingHost || this.isExiting) return;
+                    this.callbacks.onError('Se perdió la conexión con el anfitrión de la sala.');
+                });
+            }, 350);
         }
     }
 
@@ -451,6 +568,24 @@ class GameNetwork {
         }
     }
 
+    updateProfile(newName, newAvatar) {
+        if (this.isHost) {
+            if (!this.game) return;
+            this.game.updatePlayerProfile(this.localPlayerId, newName, newAvatar);
+            if (this.isLocal) {
+                this.broadcastLocalState();
+            } else {
+                this.broadcastState();
+            }
+        } else if (this.hostConn && this.hostConn.open) {
+            this.hostConn.send({
+                type: 'UPDATE_PROFILE',
+                name: newName,
+                avatar: newAvatar
+            });
+        }
+    }
+
     broadcastEmote(playerId, emote) {
         this.callbacks.onEmote(playerId, emote);
         for (const conn of this.connections.values()) {
@@ -481,5 +616,64 @@ class GameNetwork {
         if (!this.game) return;
         const state = this.game.getStateForPlayer(this.localPlayerId);
         this.callbacks.onStateUpdate(state, this.localPlayerId);
+    }
+
+    // Cierra conexiones por completo para regresar al menú principal (Lobby) o al cerrar el navegador,
+    // reacomodando automáticamente la partida para los jugadores que quedan
+    disconnectAndExit() {
+        if (this.isExiting) return;
+        this.isExiting = true;
+
+        if (!this.isHost && this.hostConn && this.hostConn.open) {
+            try {
+                this.hostConn.send({ type: 'LEAVE_ROOM' });
+                this.hostConn.close();
+            } catch (e) {}
+        } else if (this.isHost && !this.isLocal && this.connections && this.connections.size > 0 && this.game) {
+            // Si el Host abandona o cierra su navegador y quedan invitados conectados,
+            // se retira al Host de la mesa, se reacomoda la partida y se migra el Host al primer invitado activo
+            try {
+                const res = this.game.removePlayer(this.localPlayerId);
+                const leftName = (res && res.player) ? res.player.name : 'El anfitrión';
+                let newHostId = null;
+
+                for (const [pid, conn] of this.connections.entries()) {
+                    if (conn && conn.open) {
+                        newHostId = pid;
+                        break;
+                    }
+                }
+
+                if (newHostId) {
+                    const newHostPeerId = `opboveda-${(this.roomCode || 'room').toLowerCase()}-h${Math.random().toString(36).substr(2, 4)}`;
+                    const migrationPayload = {
+                        type: 'HOST_MIGRATION',
+                        newHostId,
+                        newHostPeerId,
+                        leftPlayerId: this.localPlayerId,
+                        leftPlayerName: leftName,
+                        fullGameData: this.game.serializeFullGame()
+                    };
+                    for (const conn of this.connections.values()) {
+                        if (conn && conn.open) {
+                            try { conn.send(migrationPayload); } catch (e) {}
+                        }
+                    }
+                }
+            } catch (e) {}
+        }
+
+        if (this.isHost && this.connections) {
+            for (const conn of this.connections.values()) {
+                try { conn.close(); } catch (e) {}
+            }
+            this.connections.clear();
+        }
+        if (this.peer) {
+            try { this.peer.destroy(); } catch (e) {}
+            this.peer = null;
+        }
+        this.game = null;
+        this.hostConn = null;
     }
 }

@@ -15,9 +15,12 @@ document.addEventListener('DOMContentLoaded', () => {
     initLobby();
     initModals();
     initSoundToggle();
+    initLeaveGameButton();
+    initEditProfileModal();
     initCheatSheet();
     initChat();
     initSwapModal();
+    init3DCameraControls();
     checkUrlForRoom();
 });
 
@@ -45,37 +48,44 @@ function initLobby() {
     });
 
     // Subir foto propia como avatar
-    const fileInput = document.getElementById('input-avatar-file');
     const uploadLabel = document.getElementById('btn-upload-avatar');
 
-    fileInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
+    function attachLobbyFileInput() {
+        const fileInput = document.getElementById('input-avatar-file');
+        if (!fileInput) return;
 
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const img = new Image();
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = 96;
-                canvas.height = 96;
-                const ctx = canvas.getContext('2d');
-                const minDim = Math.min(img.width, img.height);
-                const sx = (img.width - minDim) / 2;
-                const sy = (img.height - minDim) / 2;
-                ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, 96, 96);
+        fileInput.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
 
-                myAvatar = canvas.toDataURL('image/jpeg', 0.85);
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 96;
+                    canvas.height = 96;
+                    const ctx = canvas.getContext('2d');
+                    const minDim = Math.min(img.width, img.height);
+                    const sx = (img.width - minDim) / 2;
+                    const sy = (img.height - minDim) / 2;
+                    ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, 96, 96);
 
-                document.querySelectorAll('.avatar-btn').forEach(b => b.classList.remove('selected'));
-                uploadLabel.classList.add('selected');
-                uploadLabel.innerHTML = `<img src="${myAvatar}" class="avatar-custom-img"><input type="file" id="input-avatar-file" accept="image/*" style="display:none;">`;
-                soundManager.playClick();
+                    myAvatar = canvas.toDataURL('image/jpeg', 0.85);
+
+                    document.querySelectorAll('.lobby-card .avatar-btn').forEach(b => b.classList.remove('selected'));
+                    uploadLabel.classList.add('selected');
+                    uploadLabel.innerHTML = `<img src="${myAvatar}" class="avatar-custom-img"><input type="file" id="input-avatar-file" accept="image/*" style="display:none;">`;
+                    attachLobbyFileInput();
+                    soundManager.playClick();
+                };
+                img.src = event.target.result;
             };
-            img.src = event.target.result;
+            reader.readAsDataURL(file);
         };
-        reader.readAsDataURL(file);
-    });
+    }
+
+    attachLobbyFileInput();
 
     // Pestañas de modo
     const tabs = document.querySelectorAll('.lobby-tab');
@@ -146,6 +156,30 @@ function setupNetwork() {
             document.getElementById('header-room-info').classList.remove('hidden');
             document.getElementById('room-code-display').textContent = roomCode;
 
+            const btnLeave = document.getElementById('btn-leave-game');
+            if (btnLeave) {
+                btnLeave.classList.remove('hidden');
+                btnLeave.innerHTML = '🚪 Abandonar';
+                btnLeave.title = 'Abandonar la partida actual';
+            }
+
+            const btnEditProfile = document.getElementById('btn-edit-profile');
+            if (btnEditProfile) {
+                btnEditProfile.classList.remove('hidden');
+            }
+
+            const chatDock = document.getElementById('chat-dock-container');
+            if (chatDock) {
+                chatDock.classList.remove('hidden');
+            }
+            const chatWin = document.getElementById('chat-window');
+            if (chatWin) chatWin.classList.add('hidden');
+            const chatList = document.getElementById('chat-messages-list');
+            if (chatList) chatList.innerHTML = '';
+            chatUnreadCount = 0;
+            const chatBadge = document.getElementById('chat-unread-badge');
+            if (chatBadge) chatBadge.classList.add('hidden');
+
             if (roomCode === 'LOCAL') {
                 document.getElementById('btn-copy-invite').classList.add('hidden');
             } else {
@@ -156,6 +190,13 @@ function setupNetwork() {
             currentGameState = state;
             if (localPid) myPlayerId = localPid;
             renderGame(state);
+        },
+        onPlayerLeft: (playerId, playerName, remainingCount) => {
+            if (playerId === myPlayerId) {
+                showToast(`🚪 Abandonaste tu asiento. La partida se acomodó a los ${remainingCount} jugadores restantes.`);
+            } else {
+                showToast(`🚪 ${playerName || 'Un agente'} abandonó la partida. La mesa se acomodó a ${remainingCount} jugadores.`);
+            }
         },
         onError: (err) => {
             alert(err);
@@ -227,6 +268,11 @@ function renderGame(state) {
     renderChipsRack(state);
     renderPokerStarsSeats(state);
     renderActionControls(state);
+
+    // Actualizar escena 3D WebGL (Three.js)
+    if (typeof pokerTable3D !== 'undefined' && pokerTable3D) {
+        pokerTable3D.updateState(state, myPlayerId);
+    }
 
     // Auto-showdown en River
     if (state.phase === 'showdown' && !isShowdownRunning && network.isHost) {
@@ -834,6 +880,15 @@ function renderActionControls(state) {
                 network.setReady(!me.ready);
             };
             container.appendChild(btnReady);
+        } else {
+            const btnBackLobby = document.createElement('button');
+            btnBackLobby.className = 'btn btn-secondary';
+            btnBackLobby.innerHTML = '🏠 Volver al Menú';
+            btnBackLobby.onclick = () => {
+                soundManager.playClick();
+                returnToLobbyScreen();
+            };
+            container.appendChild(btnBackLobby);
         }
 
         if (isHost) {
@@ -1012,6 +1067,10 @@ function appendChatMessage(msg) {
 // 10. EMOTES Y MODALES
 // ==========================================
 function showFloatingEmote(playerId, emoji) {
+    if (typeof pokerTable3D !== 'undefined' && pokerTable3D && pokerTable3D.is3DEnabled) {
+        pokerTable3D.spawnEmote3D(playerId, emoji);
+    }
+
     const pod = document.getElementById(`player-pod-${playerId}`);
     if (!pod) return;
 
@@ -1077,4 +1136,239 @@ function initSoundToggle() {
         const enabled = soundManager.toggle();
         btnSound.innerHTML = enabled ? '🔊' : '🔇';
     };
+}
+
+// ==========================================
+// 8. ABANDONAR PARTIDA Y ACOMODAR JUGADORES
+// ==========================================
+function initLeaveGameButton() {
+    const btnLeave = document.getElementById('btn-leave-game');
+    if (btnLeave) {
+        btnLeave.addEventListener('click', () => {
+            soundManager.playClick();
+            returnToLobbyScreen();
+        });
+    }
+
+    // Si el jugador cierra la pestaña o ventana del navegador, salir y reacomodar la partida para los demás
+    window.addEventListener('beforeunload', () => {
+        if (network) {
+            network.disconnectAndExit();
+        }
+    });
+
+    window.addEventListener('pagehide', () => {
+        if (network) {
+            network.disconnectAndExit();
+        }
+    });
+}
+
+function returnToLobbyScreen() {
+    if (network) {
+        network.disconnectAndExit();
+        network = null;
+    }
+    currentGameState = null;
+    isShowdownRunning = false;
+
+    document.getElementById('game-screen').classList.add('hidden');
+    document.getElementById('header-room-info').classList.add('hidden');
+    const btnLeave = document.getElementById('btn-leave-game');
+    if (btnLeave) btnLeave.classList.add('hidden');
+    const btnEditProfile = document.getElementById('btn-edit-profile');
+    if (btnEditProfile) btnEditProfile.classList.add('hidden');
+    const chatDock = document.getElementById('chat-dock-container');
+    if (chatDock) chatDock.classList.add('hidden');
+    const chatWin = document.getElementById('chat-window');
+    if (chatWin) chatWin.classList.add('hidden');
+
+    const editProfileModal = document.getElementById('modal-edit-profile');
+    if (editProfileModal) editProfileModal.classList.remove('active');
+    const recuentoModal = document.getElementById('modal-recuento');
+    if (recuentoModal) recuentoModal.classList.remove('active');
+    const gameoverModal = document.getElementById('modal-gameover');
+    if (gameoverModal) gameoverModal.classList.remove('active');
+
+    document.getElementById('lobby-screen').classList.remove('hidden');
+}
+
+// ==========================================
+// 8b. CAMBIAR FOTO Y NOMBRE EN PARTIDA (✏️)
+// ==========================================
+function initEditProfileModal() {
+    const btnOpen = document.getElementById('btn-edit-profile');
+    const modal = document.getElementById('modal-edit-profile');
+    const btnClose = document.getElementById('btn-close-edit-profile');
+    const btnCancel = document.getElementById('btn-cancel-edit-profile');
+    const btnSave = document.getElementById('btn-save-edit-profile');
+    const nameInput = document.getElementById('input-edit-player-name');
+    const avatarBtns = document.querySelectorAll('.edit-avatar-btn');
+    const uploadLabel = document.getElementById('btn-edit-upload-avatar');
+
+    if (!btnOpen || !modal) return;
+
+    let tempEditAvatar = myAvatar;
+
+    function attachFileInputHandler() {
+        const fileInput = document.getElementById('input-edit-avatar-file');
+        if (!fileInput) return;
+
+        fileInput.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 96;
+                    canvas.height = 96;
+                    const ctx = canvas.getContext('2d');
+                    const minDim = Math.min(img.width, img.height);
+                    const sx = (img.width - minDim) / 2;
+                    const sy = (img.height - minDim) / 2;
+                    ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, 96, 96);
+
+                    tempEditAvatar = canvas.toDataURL('image/jpeg', 0.85);
+
+                    document.querySelectorAll('#edit-avatar-selector .avatar-btn').forEach(b => b.classList.remove('selected'));
+                    uploadLabel.classList.add('selected');
+                    uploadLabel.innerHTML = `<img src="${tempEditAvatar}" class="avatar-custom-img"><input type="file" id="input-edit-avatar-file" accept="image/*" style="display:none;">`;
+                    attachFileInputHandler();
+                    soundManager.playClick();
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        };
+    }
+
+    attachFileInputHandler();
+
+    avatarBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('#edit-avatar-selector .avatar-btn').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            tempEditAvatar = btn.dataset.avatar;
+            soundManager.playClick();
+        });
+    });
+
+    btnOpen.addEventListener('click', () => {
+        soundManager.playClick();
+        tempEditAvatar = myAvatar;
+        if (nameInput) nameInput.value = myName;
+
+        document.querySelectorAll('#edit-avatar-selector .avatar-btn').forEach(b => b.classList.remove('selected'));
+
+        if (myAvatar && (myAvatar.startsWith('data:') || myAvatar.startsWith('http'))) {
+            uploadLabel.classList.add('selected');
+            uploadLabel.innerHTML = `<img src="${myAvatar}" class="avatar-custom-img"><input type="file" id="input-edit-avatar-file" accept="image/*" style="display:none;">`;
+            attachFileInputHandler();
+        } else {
+            const matchedBtn = Array.from(avatarBtns).find(b => b.dataset.avatar === myAvatar);
+            if (matchedBtn) matchedBtn.classList.add('selected');
+        }
+
+        modal.classList.add('active');
+        if (nameInput) nameInput.focus();
+    });
+
+    const closeModal = () => {
+        soundManager.playClick();
+        modal.classList.remove('active');
+    };
+
+    if (btnClose) btnClose.onclick = closeModal;
+    if (btnCancel) btnCancel.onclick = closeModal;
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+
+    if (btnSave) {
+        btnSave.addEventListener('click', () => {
+            soundManager.playClick();
+            const newName = (nameInput && nameInput.value.trim()) ? nameInput.value.trim().slice(0, 15) : myName;
+            myName = newName;
+            myAvatar = tempEditAvatar || myAvatar;
+
+            // Sincronizar también con el input del Lobby
+            const lobbyNameInput = document.getElementById('input-player-name');
+            if (lobbyNameInput) lobbyNameInput.value = myName;
+
+            if (network) {
+                network.updateProfile(myName, myAvatar);
+            }
+
+            modal.classList.remove('active');
+            showToast('✏️ Perfil actualizado en la mesa.');
+        });
+    }
+}
+
+// ==========================================
+// 9. CONTROLES DE CÁMARA Y MODO 3D / 2D
+// ==========================================
+function init3DCameraControls() {
+    const arenaWrapper = document.getElementById('table-arena-wrapper');
+    const btnToggleMode = document.getElementById('btn-toggle-3d-mode');
+    const camBtns = document.querySelectorAll('.cam-3d-btn[data-cam]');
+
+    camBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            soundManager.playClick();
+            const preset = btn.dataset.cam;
+
+            // Si estábamos en 2D y pulsan un botón de cámara 3D, activar 3D
+            if (arenaWrapper && !arenaWrapper.classList.contains('mode-3d')) {
+                set3DMode(true);
+            }
+
+            camBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            if (typeof pokerTable3D !== 'undefined' && pokerTable3D) {
+                pokerTable3D.setCameraPreset(preset);
+            }
+        });
+    });
+
+    function set3DMode(enable3D) {
+        if (!arenaWrapper) return;
+        const toolbar = document.getElementById('camera-3d-toolbar');
+        if (enable3D) {
+            arenaWrapper.classList.add('mode-3d');
+            arenaWrapper.classList.remove('mode-2d');
+            if (toolbar) toolbar.classList.remove('mode-2d');
+            if (btnToggleMode) btnToggleMode.innerHTML = '🃏 Vista 2D';
+            if (typeof pokerTable3D !== 'undefined' && pokerTable3D) {
+                pokerTable3D.is3DEnabled = true;
+                if (currentGameState) {
+                    renderPokerStarsSeats(currentGameState);
+                    pokerTable3D.updateState(currentGameState, myPlayerId);
+                }
+            }
+        } else {
+            arenaWrapper.classList.remove('mode-3d');
+            arenaWrapper.classList.add('mode-2d');
+            if (toolbar) toolbar.classList.add('mode-2d');
+            if (btnToggleMode) btnToggleMode.innerHTML = '🎲 Vista 3D';
+            if (typeof pokerTable3D !== 'undefined' && pokerTable3D) {
+                pokerTable3D.is3DEnabled = false;
+            }
+            if (currentGameState) {
+                renderPokerStarsSeats(currentGameState);
+            }
+        }
+    }
+
+    if (btnToggleMode) {
+        btnToggleMode.addEventListener('click', () => {
+            soundManager.playClick();
+            const isCurrently3D = arenaWrapper && arenaWrapper.classList.contains('mode-3d');
+            set3DMode(!isCurrently3D);
+        });
+    }
 }

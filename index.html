@@ -30,6 +30,8 @@
                 <strong id="room-code-display">----</strong>
                 <button id="btn-copy-invite" class="btn-icon" title="Copiar enlace de invitación">📋</button>
             </div>
+            <button id="btn-leave-game" class="btn-leave-game hidden" title="Abandonar la partida actual">🚪 Abandonar</button>
+            <button id="btn-edit-profile" class="btn-icon hidden" title="Cambiar Nombre y Foto">✏️</button>
             <button id="btn-sound-toggle" class="btn-icon" title="Silenciar / Activar Sonidos">🔊</button>
             <button id="btn-rules" class="btn-icon" title="Manual de Reglas">❓</button>
         </div>
@@ -146,8 +148,11 @@
             </div>
         </section>
 
-        <!-- Arena de Juego: Asientos exteriores + Mesa Central de Póker -->
-        <div class="table-arena-wrapper">
+        <!-- Arena de Juego: Vista 3D WebGL (Three.js) + Asientos Proyectados -->
+        <div class="table-arena-wrapper mode-3d" id="table-arena-wrapper">
+            <!-- Contenedor de Escena 3D WebGL -->
+            <div id="table-3d-canvas-wrap" class="table-3d-canvas-wrap"></div>
+
             <div class="poker-table-felt" id="poker-table-felt">
                 <!-- Grabado Estético en el fieltro -->
                 <div class="felt-engraving">La mesa del gordo</div>
@@ -190,15 +195,27 @@
                 </div>
             </div>
 
-            <!-- Reacciones / Emotes Rápidos -->
-            <div class="emotes-bar">
-                <button class="btn-emote" data-emote="👀" title="Observar">👀</button>
-                <button class="btn-emote" data-emote="🤔" title="Duda">🤔</button>
-                <button class="btn-emote" data-emote="😅" title="Nervios">😅</button>
-                <button class="btn-emote" data-emote="😱" title="Pánico">😱</button>
-                <button class="btn-emote" data-emote="🤞" title="Suerte">🤞</button>
-                <button class="btn-emote" data-emote="💰" title="Millonarios">💰</button>
-                <button class="btn-emote" data-emote="🚨" title="Peligro">🚨</button>
+            <!-- Reacciones / Emotes Rápidos + Controles de Cámara 3D en la misma barra -->
+            <div class="bottom-center-controls">
+                <div class="emotes-bar">
+                    <button class="btn-emote" data-emote="👀" title="Observar">👀</button>
+                    <button class="btn-emote" data-emote="🤔" title="Duda">🤔</button>
+                    <button class="btn-emote" data-emote="😅" title="Nervios">😅</button>
+                    <button class="btn-emote" data-emote="😱" title="Pánico">😱</button>
+                    <button class="btn-emote" data-emote="🤞" title="Suerte">🤞</button>
+                    <button class="btn-emote" data-emote="💰" title="Millonarios">💰</button>
+                    <button class="btn-emote" data-emote="🚨" title="Peligro">🚨</button>
+                </div>
+
+                <div class="bottom-controls-divider"></div>
+
+                <!-- Menú de Selección de Cámara 3D -->
+                <div class="camera-3d-toolbar" id="camera-3d-toolbar">
+                    <button class="cam-3d-btn active" data-cam="seat" title="Vista desde tu asiento">🪑 Mi Asiento</button>
+                    <button class="cam-3d-btn" data-cam="top" title="Vista cenital superior">🦅 Cenital</button>
+                    <button class="cam-3d-btn" data-cam="angle" title="Vista panorámica diagonal">🎬 Diagonal</button>
+                    <button class="cam-3d-btn cam-toggle-mode" id="btn-toggle-3d-mode" title="Alternar entre Vista 3D y 2D Clásica">🃏 Vista 2D</button>
+                </div>
             </div>
 
             <!-- Botones de Acción de Fase -->
@@ -279,8 +296,8 @@
         </div>
     </div>
 
-    <!-- Dock de Chat Escrito Integrado -->
-    <div id="chat-dock-container" class="chat-dock-container">
+    <!-- Dock de Chat Escrito Integrado (Solo visible dentro de la partida) -->
+    <div id="chat-dock-container" class="chat-dock-container hidden">
         <button id="btn-toggle-chat" class="btn-toggle-chat" title="Abrir Chat del Equipo">
             <span>💬</span>
             <span class="chat-btn-label">Chat</span>
@@ -419,12 +436,53 @@
         </div>
     </div>
 
+    <!-- Modal para Cambiar Nombre y Foto dentro de la Partida -->
+    <div id="modal-edit-profile" class="modal-overlay">
+        <div class="modal-box" style="max-width:440px;">
+            <div class="modal-header">
+                <div class="modal-title">✏️ Editar Perfil de Agente</div>
+                <button id="btn-close-edit-profile" class="btn-icon">✖</button>
+            </div>
+            <div class="modal-content">
+                <div class="input-group" style="margin-bottom:16px;">
+                    <label>Nuevo Nombre del Agente:</label>
+                    <input type="text" id="input-edit-player-name" placeholder="Ej: Maestro, La Furia..." maxlength="15">
+                </div>
+
+                <div class="input-group" style="margin-bottom:20px;">
+                    <label>Elige tu Avatar o Sube tu Foto:</label>
+                    <div class="avatar-selector" id="edit-avatar-selector">
+                        <button type="button" class="avatar-btn edit-avatar-btn" data-avatar="🕵️">🕵️</button>
+                        <button type="button" class="avatar-btn edit-avatar-btn" data-avatar="🧠">🧠</button>
+                        <button type="button" class="avatar-btn edit-avatar-btn" data-avatar="🕶️">🕶️</button>
+                        <button type="button" class="avatar-btn edit-avatar-btn" data-avatar="💻">💻</button>
+                        <button type="button" class="avatar-btn edit-avatar-btn" data-avatar="🔑">🔑</button>
+                        <button type="button" class="avatar-btn edit-avatar-btn" data-avatar="🧨">🧨</button>
+                        <button type="button" class="avatar-btn edit-avatar-btn" data-avatar="🏎️">🏎️</button>
+                        <label class="avatar-btn avatar-upload-label" id="btn-edit-upload-avatar" title="Subir foto propia">
+                            <input type="file" id="input-edit-avatar-file" accept="image/*" style="display:none;">
+                            <span id="edit-avatar-upload-icon">📷</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div style="display:flex;gap:10px;justify-content:flex-end;">
+                    <button type="button" id="btn-cancel-edit-profile" class="btn btn-secondary">Cancelar</button>
+                    <button type="button" id="btn-save-edit-profile" class="btn btn-primary">💾 Guardar Cambios</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts del Juego -->
+    <script src="js/three.min.js"></script>
+    <script src="js/OrbitControls.js"></script>
     <script src="js/poker.js"></script>
     <script src="js/sound.js"></script>
     <script src="js/bot.js"></script>
     <script src="js/game.js"></script>
     <script src="js/network.js"></script>
+    <script src="js/table3d.js"></script>
     <script src="js/app.js"></script>
 
 </body>

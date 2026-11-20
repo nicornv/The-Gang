@@ -63,11 +63,72 @@ class OperacionBovedaGame {
         return { success: true, player };
     }
 
+    updatePlayerProfile(id, newName, newAvatar) {
+        const player = this.players.find(p => p.id === id);
+        if (!player) return { success: false };
+
+        if (newName && typeof newName === 'string' && newName.trim().length > 0) {
+            player.name = newName.trim().slice(0, 15);
+        }
+        if (newAvatar && typeof newAvatar === 'string' && newAvatar.length > 0) {
+            player.avatar = newAvatar;
+        }
+
+        this.notifyChange();
+        return { success: true, player };
+    }
+
     removePlayer(id) {
         const idx = this.players.findIndex(p => p.id === id);
         if (idx !== -1) {
             const removed = this.players.splice(idx, 1)[0];
             this.addLog(`El agente ${removed.name} abandonó el equipo.`);
+
+            // Acomodar la partida en curso a los jugadores que quedan (1..total)
+            const total = this.players.length;
+            if (total > 0 && ['preflop', 'flop', 'turn', 'river'].includes(this.phase)) {
+                // Reordenar y compactar fichas actuales dentro del rango 1..total preservando el orden relativo
+                const withChip = this.players
+                    .filter(p => p.currentChip !== null)
+                    .sort((a, b) => a.currentChip - b.currentChip);
+
+                // Si alguna ficha excede el nuevo total (o para evitar huecos fuera de rango), reindexar
+                if (withChip.some(p => p.currentChip > total)) {
+                    const used = new Set();
+                    withChip.forEach(p => {
+                        if (p.currentChip <= total && !used.has(p.currentChip)) {
+                            used.add(p.currentChip);
+                        } else {
+                            // Buscar la ficha libre más alta disponible <= total
+                            for (let c = total; c >= 1; c--) {
+                                if (!used.has(c)) {
+                                    p.currentChip = c;
+                                    p.chipsHistory[this.phase] = c;
+                                    used.add(c);
+                                    break;
+                                }
+                            }
+                        }
+                    });
+                }
+
+                // Compactar historial de fases anteriores para que estén dentro de 1..total
+                ['preflop', 'flop', 'turn', 'river'].forEach(ph => {
+                    const holders = this.players
+                        .filter(p => p.chipsHistory && p.chipsHistory[ph] !== null)
+                        .sort((a, b) => a.chipsHistory[ph] - b.chipsHistory[ph]);
+                    if (holders.some(p => p.chipsHistory[ph] > total)) {
+                        holders.forEach((p, rankIdx) => {
+                            p.chipsHistory[ph] = Math.min(total, rankIdx + 1);
+                        });
+                    }
+                });
+
+                this.updateAvailableChips();
+                this.reassignOrphanBots();
+                this.checkAllReadyCondition();
+            }
+
             this.notifyChange();
             return { success: true, player: removed };
         }
@@ -601,6 +662,72 @@ class OperacionBovedaGame {
             }),
             log: this.log
         };
+    }
+
+    // Serializar estado completo autoritativo para migración de anfitrión si el Host abandona
+    serializeFullGame() {
+        return {
+            phase: this.phase,
+            round: this.round,
+            vaultsCracked: this.vaultsCracked,
+            alarmsTriggered: this.alarmsTriggered,
+            availableChips: this.availableChips,
+            roundSuccess: this.roundSuccess,
+            failureReason: this.failureReason,
+            gameResult: this.gameResult || null,
+            showdownStep: this.showdownStep,
+            communityCards: this.communityCards.map(c => ({ rank: c.rank, suit: c.suit })),
+            deckCards: this.deck.cards.map(c => ({ rank: c.rank, suit: c.suit })),
+            players: this.players.map(p => ({
+                id: p.id,
+                name: p.name,
+                avatar: p.avatar,
+                isBot: p.isBot,
+                cards: (p.cards || []).map(c => ({ rank: c.rank, suit: c.suit })),
+                currentChip: p.currentChip,
+                chipsHistory: Object.assign({}, p.chipsHistory),
+                ready: p.ready,
+                finalRank: p.finalRank || null
+            })),
+            log: this.log
+        };
+    }
+
+    restoreFromSerialized(data) {
+        if (!data) return;
+        this.phase = data.phase || 'lobby';
+        this.round = data.round || 1;
+        this.vaultsCracked = data.vaultsCracked || 0;
+        this.alarmsTriggered = data.alarmsTriggered || 0;
+        this.availableChips = data.availableChips || [];
+        this.roundSuccess = data.roundSuccess;
+        this.failureReason = data.failureReason;
+        this.gameResult = data.gameResult || null;
+        this.showdownStep = data.showdownStep || 0;
+        this.communityCards = (data.communityCards || []).map(c => new Card(c.rank, c.suit));
+        this.deck.cards = (data.deckCards || []).map(c => new Card(c.rank, c.suit));
+        this.players = (data.players || []).map(p => {
+            const restoredCards = (p.cards || []).map(c => new Card(c.rank, c.suit));
+            let bestHand = null;
+            if (restoredCards.length === 2) {
+                bestHand = this.communityCards.length > 0
+                    ? getBestHand([...restoredCards, ...this.communityCards])
+                    : evaluatePartialHand(restoredCards);
+            }
+            return {
+                id: p.id,
+                name: p.name,
+                avatar: p.avatar,
+                isBot: !!p.isBot,
+                cards: restoredCards,
+                currentChip: p.currentChip,
+                chipsHistory: Object.assign({ preflop: null, flop: null, turn: null, river: null }, p.chipsHistory),
+                bestHand,
+                ready: !!p.ready,
+                finalRank: p.finalRank || null
+            };
+        });
+        this.log = data.log || [];
     }
 }
 
