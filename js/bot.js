@@ -1,5 +1,13 @@
 // bot.js - Lógica y comportamiento de cómplices IA para pruebas o partidas con pocos jugadores
 
+if (typeof module !== 'undefined' && typeof require !== 'undefined') {
+    if (typeof HAND_CATEGORIES === 'undefined' || typeof getBestHand === 'undefined') {
+        const poker = require('./poker.js');
+        global.HAND_CATEGORIES = poker.HAND_CATEGORIES;
+        global.getBestHand = poker.getBestHand;
+    }
+}
+
 const BOT_NAMES = [
     { name: 'El Cerebro', avatar: '🧠' },
     { name: 'La Sombra', avatar: '🕶️' },
@@ -80,10 +88,7 @@ class BotPlayer {
         return 0.99;
     }
 
-    // Decide qué ficha (1..totalPlayers) debería tomar el bot
-    static chooseChip(botCards, communityCards, phase, totalPlayers, availableChips) {
-        if (!availableChips || availableChips.length === 0) return 1;
-
+    static getIdealStar(botCards, communityCards, phase, totalPlayers) {
         let targetPercentile = 0.5;
 
         if (phase === 'preflop') {
@@ -98,7 +103,14 @@ class BotPlayer {
 
         // Mapear el percentil al rango de estrellas 1..totalPlayers
         const idealStar = Math.round(1 + targetPercentile * (totalPlayers - 1));
-        const clampedStar = Math.max(1, Math.min(totalPlayers, idealStar));
+        return Math.max(1, Math.min(totalPlayers, idealStar));
+    }
+
+    // Decide qué ficha (1..totalPlayers) debería tomar el bot
+    static chooseChip(botCards, communityCards, phase, totalPlayers, availableChips) {
+        if (!availableChips || availableChips.length === 0) return 1;
+
+        const clampedStar = BotPlayer.getIdealStar(botCards, communityCards, phase, totalPlayers);
 
         // Si la ficha ideal está disponible en la mesa, tomarla
         if (availableChips.includes(clampedStar)) {
@@ -116,6 +128,22 @@ class BotPlayer {
             }
         }
         return chosen;
+    }
+
+    // Regla de aceptación de intercambio para bots:
+    // Acepta solo si recibe una ficha no-nula y dicha ficha ofrecida está ESTRICTAMENTE más cerca
+    // de su ficha ideal que la ficha que tiene actualmente.
+    static shouldAcceptSwap(botCards, communityCards, phase, totalPlayers, currentChip, offeredChip) {
+        if (offeredChip === null || offeredChip === undefined || typeof offeredChip !== 'number') {
+            return false;
+        }
+        if (currentChip === null || currentChip === undefined || typeof currentChip !== 'number') {
+            return true;
+        }
+        const idealStar = BotPlayer.getIdealStar(botCards, communityCards, phase, totalPlayers);
+        const currentDist = Math.abs(currentChip - idealStar);
+        const offeredDist = Math.abs(offeredChip - idealStar);
+        return offeredDist < currentDist;
     }
 }
 

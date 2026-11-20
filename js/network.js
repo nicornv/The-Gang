@@ -219,7 +219,13 @@ class GameNetwork {
                 }
 
                 const res = this.game.selectChip(pid, msg.chip);
-                if (res && res.needsRequest) {
+                if (res && res.declined) {
+                    conn.send({
+                        type: 'SWAP_RESPONSE',
+                        accepted: false,
+                        targetName: res.targetPlayer || 'El bot'
+                    });
+                } else if (res && res.needsRequest) {
                     const requester = this.game.players.find(p => p.id === pid);
                     const swapPayload = {
                         type: 'SWAP_REQUEST',
@@ -556,7 +562,14 @@ class GameNetwork {
     selectChip(chipValue) {
         if (this.isHost) {
             const res = this.game.selectChip(this.localPlayerId, chipValue);
-            if (res && res.needsRequest) {
+            if (res && res.declined) {
+                if (typeof this.callbacks.onSwapResponse === 'function') {
+                    this.callbacks.onSwapResponse({
+                        accepted: false,
+                        targetName: res.targetPlayer || 'El bot'
+                    });
+                }
+            } else if (res && res.needsRequest) {
                 const requester = this.game.players.find(p => p.id === this.localPlayerId);
                 const swapPayload = {
                     type: 'SWAP_REQUEST',

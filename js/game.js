@@ -10,6 +10,11 @@ if (typeof module !== 'undefined' && typeof require !== 'undefined') {
         global.compareHandScores = poker.compareHandScores;
         global.HAND_CATEGORIES = poker.HAND_CATEGORIES;
     }
+    if (typeof BotPlayer === 'undefined') {
+        const botModule = require('./bot.js');
+        global.BotPlayer = botModule.BotPlayer;
+        global.BOT_NAMES = botModule.BOT_NAMES;
+    }
 }
 
 // Sanitizadores y Constantes de Seguridad
@@ -89,6 +94,9 @@ class OperacionBovedaGame {
     }
 
     addPlayer(id, name, avatar, isBot = false) {
+        if (this.phase !== 'lobby' && this.phase !== 'game_over') {
+            return { success: false, message: 'La partida ya está en curso.' };
+        }
         if (this.players.length >= this.options.maxPlayers) {
             return { success: false, message: 'La sala está llena (máximo 6 jugadores).' };
         }
@@ -309,10 +317,30 @@ class OperacionBovedaGame {
         // Si otro jugador la tiene, se genera una solicitud de intercambio
         const previousChip = player.currentChip;
 
-        // Si el otro jugador es un bot, evalúa el intercambio de forma automática
+        // Si el otro jugador es un bot, evalúa el intercambio con shouldAcceptSwap
         if (otherPlayer.isBot) {
+            const botAccepted = typeof BotPlayer !== 'undefined' && typeof BotPlayer.shouldAcceptSwap === 'function'
+                ? BotPlayer.shouldAcceptSwap(
+                    otherPlayer.cards,
+                    this.communityCards,
+                    this.phase,
+                    this.players.length,
+                    otherPlayer.currentChip,
+                    previousChip
+                )
+                : false;
+
+            if (!botAccepted) {
+                return {
+                    success: false,
+                    declined: true,
+                    targetPlayer: otherPlayer.name,
+                    message: `${otherPlayer.name} rechazó el intercambio de ficha.`
+                };
+            }
+
             // El bot acepta e intercambia
-            otherPlayer.currentChip = previousChip || null;
+            otherPlayer.currentChip = previousChip;
             otherPlayer.chipsHistory[this.phase] = otherPlayer.currentChip;
             otherPlayer.ready = otherPlayer.currentChip !== null;
 
