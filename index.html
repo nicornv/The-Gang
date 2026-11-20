@@ -37,6 +37,47 @@
 
     <!-- Pantalla de Inicio / Lobby -->
     <main id="lobby-screen" class="lobby-screen">
+        <div class="lobby-left">
+            <div class="lobby-card">
+                <div class="lobby-header">
+                    <h2>Jugadores en Sala</h2>
+                </div>
+                <div id="players-list" class="players-list">
+                    <!-- Lista dinámica de avatares y nombres -->
+                </div>
+            </div>
+        </div>
+        <div class="lobby-right">
+            <div class="lobby-card">
+                <div class="lobby-header">
+                    <h2>Configuración de Partida</h2>
+                </div>
+                <div class="input-group">
+                    <label>Modo de Juego:</label>
+                    <select id="mode-select" class="custom-select">
+                        <option value="thegang" selected>The Gang</option>
+                        <option value="holdem">Texas Hold'em</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label>Nombre del Agente:</label>
+                    <input type="text" id="input-player-name" placeholder="Ej: Maestro, La Furia..." maxlength="15" value="Cerebro" />
+                </div>
+                <div class="input-group">
+                    <label>Avatar:</label>
+                    <div class="avatar-selector">
+                        <!-- existing avatar buttons remain unchanged -->
+                    </div>
+                </div>
+                <div class="lobby-actions">
+                    <button id="btn-start-solo" class="btn btn-primary"><span>🤖</span> Jugar Ahora con Bots</button>
+                    <button id="btn-create-room" class="btn btn-primary"><span>🌐</span> Crear Sala Multijugador Online</button>
+                    <button id="btn-join-room" class="btn btn-primary hidden"><span>🚪</span> Entrar al Golpe</button>
+                </div>
+            </div>
+        </div>
+    </main>
+    <main id="lobby-screen" class="lobby-screen">
         <div class="lobby-card">
             <div class="lobby-header">
                 <img src="assets/logo.png" alt="Logo" class="lobby-logo-img">

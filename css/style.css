@@ -151,6 +151,119 @@ header {
 .lobby-screen {
     flex: 1;
     display: flex;
+    align-items: stretch;
+    justify-content: center;
+    gap: 20px;
+    padding: 20px;
+    flex-wrap: wrap;
+}
+
+.lobby-left, .lobby-right {
+    flex: 1 1 45%;
+    max-width: 480px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.players-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+/* Tema dinámico */
+body.mode-thegang {
+    --bg-main: #0a0304;
+    background: radial-gradient(circle at 50% 12%, #190507 0%, var(--bg-main) 35%, #020203 100%);
+}
+body.mode-holdem {
+    --bg-main: #031c3e;
+    background: radial-gradient(circle at 50% 12%, #001f3f 0%, var(--bg-main) 35%, #020203 100%);
+}
+
+/* Emoji popover */
+#emoji-popover {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    background: var(--bg-card);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-sm);
+    padding: 10px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s;
+    z-index: 1000;
+}
+#emoji-popover.visible {
+    opacity: 1;
+    visibility: visible;
+}
+#emoji-popover button {
+    background: none;
+    border: none;
+    font-size: 1.4rem;
+    cursor: pointer;
+    transition: transform 0.1s;
+}
+#emoji-popover button:hover {
+    transform: scale(1.2);
+}
+
+/* AFK toggle */
+.player-afk {
+    opacity: 0.45;
+    filter: grayscale(80%);
+}
+
+/* Modal de ventaja/desventaja */
+#modal-advantage {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+#modal-advantage.active {
+    visibility: visible;
+    opacity: 1;
+}
+#modal-advantage .advantage-card {
+    background: var(--bg-card);
+    padding: 20px;
+    border-radius: var(--radius-md);
+    max-width: 340px;
+    text-align: center;
+    animation: advantageEnter 0.4s ease-out;
+}
+@keyframes advantageEnter {
+    from {transform: scale(0.8); opacity:0;}
+    to {transform: scale(1); opacity:1;}
+}
+
+/* Animaciones de cartas */
+@keyframes cardFlip {
+    from {transform: rotateY(90deg); opacity:0;}
+    to {transform: rotateY(0deg); opacity:1;}
+}
+.card-anim-flip {
+    animation: cardFlip 0.4s ease forwards;
+}
+
+.lobby-screen {
+    flex: 1;
+    display: flex;
     align-items: center;
     justify-content: center;
     padding: 20px;
