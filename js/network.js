@@ -23,6 +23,22 @@ class GameNetwork {
         this.connections = new Map(); // Para el Host: peerId -> conn
         this.hostConn = null; // Para el Guest: conn con el Host
         this.game = null; // Instancia authoritative si es Host o Local
+
+        // Seguridad y Robustez de Red
+        this.rejoinTokens = new Map(); // Host-only: playerId -> secretToken
+        this.rejoinToken = null; // Guest secret token
+        this.pendingSwapRequests = new Map(); // targetPlayerId -> { requesterId, requestedChip, offeredChip, timestamp }
+        this.chatRateLimits = new Map(); // playerId -> [timestamps]
+        this.maxConnections = 8; // maxPlayers (6) + margen
+    }
+
+    generateSecureToken() {
+        if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+            const arr = new Uint8Array(16);
+            crypto.getRandomValues(arr);
+            return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+        }
+        return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
     }
 
     // Modo 1: Jugar solo o con bots (100% local, sin red externa)
@@ -71,6 +87,10 @@ class GameNetwork {
         });
         this.game.addPlayer(this.localPlayerId, playerName, avatar, false);
 
+        // Host generates its own rejoin token in case of future migration
+        this.rejoinToken = this.generateSecureToken();
+        this.rejoinTokens.set(this.localPlayerId, this.rejoinToken);
+
         this.peer.on('open', (id) => {
             console.log('Sala creada con ID:', id, 'Código:', code);
             this.callbacks.onConnected({ roomCode: code, isHost: true });
@@ -93,6 +113,14 @@ class GameNetwork {
 
     // Maneja nuevo jugador que se conecta al Host
     handleIncomingConnection(conn) {
+        if (this.connections.size >= this.maxConnections) {
+            conn.on('open', () => {
+                conn.send({ type: 'JOIN_REJECTED', message: 'La sala está completa (máximo de conexiones alcanzado).' });
+                conn.close();
+            });
+            return;
+        }
+
         conn.on('open', () => {
             conn.on('data', (data) => {
                 this.handleHostReceivedData(conn, data);
@@ -104,6 +132,8 @@ class GameNetwork {
             if (playerId && this.connections.has(playerId)) {
                 const res = this.game.removePlayer(playerId);
                 this.connections.delete(playerId);
+                this.rejoinTokens.delete(playerId);
+                this.chatRateLimits.delete(playerId);
                 const leftName = res && res.player ? res.player.name : 'Un agente';
                 this.notifyPlayerLeftToAll(playerId, leftName);
                 this.broadcastState();
@@ -112,70 +142,137 @@ class GameNetwork {
     }
 
     handleHostReceivedData(conn, msg) {
-        if (!msg || !msg.type) return;
+        // Validación de forma y tipo de mensaje
+        if (!msg || typeof msg !== 'object') return;
+        if (typeof msg.type !== 'string') return;
+
+        // Limitar tamaño de mensaje a ~64KB
+        try {
+            const str = JSON.stringify(msg);
+            if (str.length > 65536) return;
+        } catch (e) {
+            return;
+        }
+
+        const ALLOWED_HOST_MSG_TYPES = new Set([
+            'JOIN_ROOM', 'SELECT_CHIP', 'SWAP_RESPONSE', 'SET_READY',
+            'EMOTE', 'CHAT_MESSAGE', 'LEAVE_ROOM', 'REJOIN_MIGRATED_HOST',
+            'UPDATE_PROFILE'
+        ]);
+
+        if (!ALLOWED_HOST_MSG_TYPES.has(msg.type)) return;
+
+        // Requiere haber completado JOIN_ROOM o REJOIN_MIGRATED_HOST para cualquier otra acción
+        if (msg.type !== 'JOIN_ROOM' && msg.type !== 'REJOIN_MIGRATED_HOST') {
+            if (!conn.metadata || !conn.metadata.joined || !conn.metadata.playerId) {
+                return;
+            }
+        }
 
         switch (msg.type) {
             case 'JOIN_ROOM': {
-                const playerId = 'p_guest_' + Math.random().toString(36).substr(2, 6);
-                conn.metadata = { playerId };
-                this.connections.set(playerId, conn);
+                if (conn.metadata && conn.metadata.joined) {
+                    // Permitir JOIN_ROOM solo una vez por conexión
+                    return;
+                }
 
-                const res = this.game.addPlayer(playerId, msg.name, msg.avatar, false);
+                if (this.connections.size >= this.maxConnections) {
+                    conn.send({ type: 'JOIN_REJECTED', message: 'La sala está completa.' });
+                    conn.close();
+                    return;
+                }
+
+                const playerId = 'p_guest_' + Math.random().toString(36).substr(2, 6);
+                const rejoinToken = this.generateSecureToken();
+                conn.metadata = { playerId, joined: true };
+                this.connections.set(playerId, conn);
+                this.rejoinTokens.set(playerId, rejoinToken);
+
+                const cleanName = (typeof sanitizePlayerName === 'function') ? sanitizePlayerName(msg.name) : msg.name;
+                const cleanAvatar = (typeof sanitizeAvatar === 'function') ? sanitizeAvatar(msg.avatar) : msg.avatar;
+
+                const res = this.game.addPlayer(playerId, cleanName, cleanAvatar, false);
                 if (!res.success) {
+                    this.connections.delete(playerId);
+                    this.rejoinTokens.delete(playerId);
                     conn.send({ type: 'JOIN_REJECTED', message: res.message });
                     conn.close();
                     return;
                 }
 
-                conn.send({ type: 'JOIN_ACCEPTED', playerId, roomCode: this.roomCode });
+                // El token secreto se entrega ÚNICAMENTE a este cliente
+                conn.send({
+                    type: 'JOIN_ACCEPTED',
+                    playerId,
+                    rejoinToken,
+                    roomCode: this.roomCode
+                });
                 this.callbacks.onPlayerJoined(res.player);
                 this.broadcastState();
                 break;
             }
 
             case 'SELECT_CHIP': {
-                const pid = conn.metadata ? conn.metadata.playerId : null;
-                if (pid) {
-                    const res = this.game.selectChip(pid, msg.chip);
-                    if (res && res.needsRequest) {
-                        const requester = this.game.players.find(p => p.id === pid);
-                        const swapPayload = {
-                            type: 'SWAP_REQUEST',
-                            requesterId: pid,
-                            requesterName: requester ? requester.name : 'Un jugador',
-                            requesterAvatar: requester ? requester.avatar : '🕵️',
-                            requestedChip: res.requestedChip,
-                            offeredChip: res.offeredChip
-                        };
+                const pid = conn.metadata.playerId;
+                if (!Number.isInteger(msg.chip) || msg.chip < 1 || msg.chip > this.game.players.length) {
+                    return;
+                }
 
-                        if (res.targetPlayerId === this.localPlayerId) {
-                            this.callbacks.onSwapRequest(swapPayload);
-                        } else {
-                            const targetConn = this.connections.get(res.targetPlayerId);
-                            if (targetConn && targetConn.open) {
-                                targetConn.send(swapPayload);
-                            }
-                        }
+                const res = this.game.selectChip(pid, msg.chip);
+                if (res && res.needsRequest) {
+                    const requester = this.game.players.find(p => p.id === pid);
+                    const swapPayload = {
+                        type: 'SWAP_REQUEST',
+                        requesterId: pid,
+                        requesterName: requester ? requester.name : 'Un jugador',
+                        requesterAvatar: requester ? requester.avatar : '🕵️',
+                        requestedChip: res.requestedChip,
+                        offeredChip: res.offeredChip
+                    };
+
+                    // Registrar petición pendiente para verificar la respuesta posteriormente
+                    this.pendingSwapRequests.set(res.targetPlayerId, {
+                        requesterId: pid,
+                        requestedChip: res.requestedChip,
+                        offeredChip: res.offeredChip,
+                        timestamp: Date.now()
+                    });
+
+                    if (res.targetPlayerId === this.localPlayerId) {
+                        this.callbacks.onSwapRequest(swapPayload);
                     } else {
-                        this.broadcastState();
+                        const targetConn = this.connections.get(res.targetPlayerId);
+                        if (targetConn && targetConn.open) {
+                            targetConn.send(swapPayload);
+                        }
                     }
+                } else {
+                    this.broadcastState();
                 }
                 break;
             }
 
             case 'SWAP_RESPONSE': {
-                const pid = conn.metadata ? conn.metadata.playerId : null;
-                if (pid && msg.accepted) {
-                    this.game.executeSwap(msg.requesterId, pid, msg.requestedChip, msg.offeredChip);
+                const pid = conn.metadata.playerId;
+                const pending = this.pendingSwapRequests.get(pid);
+                if (!pending || pending.requesterId !== msg.requesterId || pending.requestedChip !== msg.requestedChip) {
+                    // Respuesta no solicitada o datos incongruentes, descartar
+                    return;
+                }
+                this.pendingSwapRequests.delete(pid);
+
+                if (msg.accepted === true) {
+                    this.game.executeSwap(pending.requesterId, pid, pending.requestedChip, pending.offeredChip);
                     this.broadcastState();
-                } else if (pid && !msg.accepted) {
-                    // Notificar al solicitante que fue rechazado
-                    if (msg.requesterId === this.localPlayerId) {
-                        this.callbacks.onSwapResponse({ accepted: false, targetName: msg.targetName });
+                } else {
+                    const responder = this.game.players.find(p => p.id === pid);
+                    const targetName = responder ? responder.name : 'El jugador';
+                    if (pending.requesterId === this.localPlayerId) {
+                        this.callbacks.onSwapResponse({ accepted: false, targetName });
                     } else {
-                        const reqConn = this.connections.get(msg.requesterId);
+                        const reqConn = this.connections.get(pending.requesterId);
                         if (reqConn && reqConn.open) {
-                            reqConn.send({ type: 'SWAP_REJECTED', targetName: msg.targetName });
+                            reqConn.send({ type: 'SWAP_REJECTED', targetName });
                         }
                     }
                 }
@@ -183,8 +280,8 @@ class GameNetwork {
             }
 
             case 'SET_READY': {
-                const pid = conn.metadata ? conn.metadata.playerId : null;
-                if (pid) {
+                const pid = conn.metadata.playerId;
+                if (typeof msg.ready === 'boolean') {
                     this.game.setPlayerReady(pid, msg.ready);
                     this.broadcastState();
                 }
@@ -192,51 +289,77 @@ class GameNetwork {
             }
 
             case 'EMOTE': {
-                const pid = conn.metadata ? conn.metadata.playerId : null;
-                if (pid) {
-                    this.broadcastEmote(pid, msg.emote);
+                const pid = conn.metadata.playerId;
+                if (typeof msg.emote === 'string') {
+                    const isValid = (typeof isValidEmote === 'function') ? isValidEmote(msg.emote) : ['👀', '🤔', '😅', '😱', '🤞', '💰', '🚨'].includes(msg.emote.trim());
+                    if (isValid) {
+                        this.broadcastEmote(pid, msg.emote.trim());
+                    }
                 }
                 break;
             }
 
             case 'CHAT_MESSAGE': {
-                const pid = conn.metadata ? conn.metadata.playerId : null;
-                if (pid) {
-                    const player = this.game.players.find(p => p.id === pid);
-                    const name = player ? player.name : 'Agente';
-                    const avatar = player ? player.avatar : '🕵️';
-                    this.broadcastChatMessage(pid, name, avatar, msg.text);
+                const pid = conn.metadata.playerId;
+                const cleanText = (typeof sanitizeChatMessage === 'function') ? sanitizeChatMessage(msg.text) : (msg.text ? String(msg.text).trim().slice(0, 120) : '');
+                if (!cleanText) return;
+
+                // Rate limiting: máximo 5 mensajes en 3 segundos por conexión
+                const now = Date.now();
+                const timestamps = this.chatRateLimits.get(pid) || [];
+                const recent = timestamps.filter(t => now - t < 3000);
+                if (recent.length >= 5) {
+                    return;
                 }
+                recent.push(now);
+                this.chatRateLimits.set(pid, recent);
+
+                const player = this.game.players.find(p => p.id === pid);
+                const name = player ? player.name : 'Agente';
+                const avatar = player ? player.avatar : '🕵️';
+
+                // Siempre se construye el payload con los datos autoritativos del Host
+                this.broadcastChatMessage(pid, name, avatar, cleanText);
                 break;
             }
 
             case 'LEAVE_ROOM': {
-                const pid = conn.metadata ? conn.metadata.playerId : null;
-                if (pid) {
-                    this.connections.delete(pid);
-                    const res = this.game.removePlayer(pid);
-                    if (res && res.success) {
-                        const leftName = res.player ? res.player.name : 'Un agente';
-                        this.notifyPlayerLeftToAll(pid, leftName);
-                        this.broadcastState();
-                    }
+                const pid = conn.metadata.playerId;
+                this.connections.delete(pid);
+                this.rejoinTokens.delete(pid);
+                this.chatRateLimits.delete(pid);
+                const res = this.game.removePlayer(pid);
+                if (res && res.success) {
+                    const leftName = res.player ? res.player.name : 'Un agente';
+                    this.notifyPlayerLeftToAll(pid, leftName);
+                    this.broadcastState();
                 }
                 break;
             }
 
             case 'REJOIN_MIGRATED_HOST': {
                 const pid = msg.playerId;
-                if (pid) {
-                    conn.metadata = { playerId: pid };
-                    this.connections.set(pid, conn);
-                    this.broadcastState();
+                const token = msg.rejoinToken;
+                if (!pid || typeof pid !== 'string' || !token || typeof token !== 'string') {
+                    conn.send({ type: 'JOIN_REJECTED', message: 'Autenticación de sesión fallida.' });
+                    conn.close();
+                    return;
                 }
+                if (!this.rejoinTokens.has(pid) || this.rejoinTokens.get(pid) !== token) {
+                    conn.send({ type: 'JOIN_REJECTED', message: 'Token de sesión inválido.' });
+                    conn.close();
+                    return;
+                }
+
+                conn.metadata = { playerId: pid, joined: true };
+                this.connections.set(pid, conn);
+                this.broadcastState();
                 break;
             }
 
             case 'UPDATE_PROFILE': {
-                const pid = conn.metadata ? conn.metadata.playerId : null;
-                if (pid && this.game) {
+                const pid = conn.metadata.playerId;
+                if (this.game) {
                     this.game.updatePlayerProfile(pid, msg.name, msg.avatar);
                     this.broadcastState();
                 }
@@ -318,6 +441,7 @@ class GameNetwork {
         switch (msg.type) {
             case 'JOIN_ACCEPTED':
                 this.localPlayerId = msg.playerId;
+                this.rejoinToken = msg.rejoinToken || null;
                 this.callbacks.onConnected({ roomCode: msg.roomCode, isHost: false });
                 break;
 
@@ -367,19 +491,21 @@ class GameNetwork {
 
     handleHostMigration(msg) {
         this.isMigratingHost = true;
-        const remainingCount = (msg.fullGameData && msg.fullGameData.players) ? msg.fullGameData.players.length : 0;
-        this.callbacks.onPlayerLeft(msg.leftPlayerId, msg.leftPlayerName, remainingCount);
+        this.callbacks.onPlayerLeft(msg.leftPlayerId, msg.leftPlayerName);
 
-        const tempGame = new OperacionBovedaGame({
-            onStateChange: () => this.broadcastState()
-        });
-        tempGame.restoreFromSerialized(msg.fullGameData);
-
-        if (this.localPlayerId === msg.newHostId) {
+        if (this.localPlayerId === msg.newHostId || msg.isNewHost) {
             // Este invitado asume automáticamente como nuevo Host de la partida
+            const tempGame = new OperacionBovedaGame({
+                onStateChange: () => this.broadcastState()
+            });
+            tempGame.restoreFromSerialized(msg.fullGameData);
+
             this.isHost = true;
             this.game = tempGame;
             this.connections = new Map();
+            this.rejoinTokens = new Map(Object.entries(msg.rejoinTokens || {}));
+            this.pendingSwapRequests = new Map();
+            this.chatRateLimits = new Map();
             this.hostConn = null;
 
             // Actualizar de inmediato la pantalla del nuevo Host con la mesa reacomodada
@@ -398,9 +524,10 @@ class GameNetwork {
             }
             this.isMigratingHost = false;
         } else {
-            // Los demás invitados actualizan su mesa de inmediato y se reconectan al nuevo Host
-            const myState = tempGame.getStateForPlayer(this.localPlayerId);
-            this.callbacks.onStateUpdate(myState, this.localPlayerId);
+            // Los demás invitados actualizan su mesa con su estado sanitizado (sin ver cartas ajenas)
+            if (msg.sanitizedState) {
+                this.callbacks.onStateUpdate(msg.sanitizedState, this.localPlayerId);
+            }
 
             setTimeout(() => {
                 if (!this.peer || this.isExiting) return;
@@ -410,7 +537,8 @@ class GameNetwork {
                     this.isMigratingHost = false;
                     conn.send({
                         type: 'REJOIN_MIGRATED_HOST',
-                        playerId: this.localPlayerId
+                        playerId: this.localPlayerId,
+                        rejoinToken: this.rejoinToken
                     });
                 });
                 conn.on('data', (data) => {
@@ -538,8 +666,8 @@ class GameNetwork {
 
     sendChatMessage(text, playerName, playerAvatar) {
         if (!text || !text.trim()) return;
-        const cleanText = text.trim();
-        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const cleanText = (typeof sanitizeChatMessage === 'function') ? sanitizeChatMessage(text) : text.trim().slice(0, 120);
+        if (!cleanText) return;
 
         if (this.isHost) {
             this.broadcastChatMessage(this.localPlayerId, playerName, playerAvatar, cleanText);
@@ -646,17 +774,40 @@ class GameNetwork {
 
                 if (newHostId) {
                     const newHostPeerId = `opboveda-${(this.roomCode || 'room').toLowerCase()}-h${Math.random().toString(36).substr(2, 4)}`;
-                    const migrationPayload = {
-                        type: 'HOST_MIGRATION',
-                        newHostId,
-                        newHostPeerId,
-                        leftPlayerId: this.localPlayerId,
-                        leftPlayerName: leftName,
-                        fullGameData: this.game.serializeFullGame()
-                    };
-                    for (const conn of this.connections.values()) {
-                        if (conn && conn.open) {
-                            try { conn.send(migrationPayload); } catch (e) {}
+                    const fullGameData = this.game.serializeFullGame();
+                    const tokensObj = Object.fromEntries(this.rejoinTokens);
+
+                    // 1. Enviar estado completo y tokens ÚNICAMENTE al nuevo Host
+                    const newHostConn = this.connections.get(newHostId);
+                    if (newHostConn && newHostConn.open) {
+                        try {
+                            newHostConn.send({
+                                type: 'HOST_MIGRATION',
+                                isNewHost: true,
+                                newHostId,
+                                newHostPeerId,
+                                leftPlayerId: this.localPlayerId,
+                                leftPlayerName: leftName,
+                                fullGameData,
+                                rejoinTokens: tokensObj
+                            });
+                        } catch (e) {}
+                    }
+
+                    // 2. A todos los demás invitados enviar ÚNICAMENTE su propio estado sanitizado
+                    for (const [pid, conn] of this.connections.entries()) {
+                        if (pid !== newHostId && conn && conn.open) {
+                            try {
+                                conn.send({
+                                    type: 'HOST_MIGRATION',
+                                    isNewHost: false,
+                                    newHostId,
+                                    newHostPeerId,
+                                    leftPlayerId: this.localPlayerId,
+                                    leftPlayerName: leftName,
+                                    sanitizedState: this.game.getStateForPlayer(pid)
+                                });
+                            } catch (e) {}
                         }
                     }
                 }
@@ -676,4 +827,8 @@ class GameNetwork {
         this.game = null;
         this.hostConn = null;
     }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { GameNetwork };
 }

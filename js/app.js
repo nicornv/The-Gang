@@ -71,11 +71,30 @@ function initLobby() {
                     const sy = (img.height - minDim) / 2;
                     ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, 96, 96);
 
-                    myAvatar = canvas.toDataURL('image/jpeg', 0.85);
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                    const safe = (typeof sanitizeAvatar === 'function') ? sanitizeAvatar(dataUrl) : dataUrl;
+                    if (!safe.startsWith('data:image/')) {
+                        alert('La imagen no es válida o excede el tamaño permitido.');
+                        return;
+                    }
+                    myAvatar = safe;
 
                     document.querySelectorAll('.lobby-card .avatar-btn').forEach(b => b.classList.remove('selected'));
                     uploadLabel.classList.add('selected');
-                    uploadLabel.innerHTML = `<img src="${myAvatar}" class="avatar-custom-img"><input type="file" id="input-avatar-file" accept="image/*" style="display:none;">`;
+                    uploadLabel.replaceChildren();
+
+                    const imgPreview = document.createElement('img');
+                    imgPreview.src = myAvatar;
+                    imgPreview.className = 'avatar-custom-img';
+                    uploadLabel.appendChild(imgPreview);
+
+                    const fileIn = document.createElement('input');
+                    fileIn.type = 'file';
+                    fileIn.id = 'input-avatar-file';
+                    fileIn.accept = 'image/*';
+                    fileIn.style.display = 'none';
+                    uploadLabel.appendChild(fileIn);
+
                     attachLobbyFileInput();
                     soundManager.playClick();
                 };
@@ -458,10 +477,28 @@ function renderChipsRack(state) {
             chip.classList.add('claimed-by-other');
         }
 
-        chip.innerHTML = `
-            <div class="chip-inner-disc">${num}</div>
-            ${holder ? `<div style="font-size:0.65rem;position:absolute;bottom:-18px;white-space:nowrap;font-weight:700;">${renderAvatarMini(holder.avatar)} ${holder.name.split(' ')[0]}</div>` : ''}
-        `;
+        const innerDisc = document.createElement('div');
+        innerDisc.className = 'chip-inner-disc';
+        innerDisc.textContent = String(num);
+        chip.appendChild(innerDisc);
+
+        if (holder) {
+            const holderLabel = document.createElement('div');
+            holderLabel.style.fontSize = '0.65rem';
+            holderLabel.style.position = 'absolute';
+            holderLabel.style.bottom = '-18px';
+            holderLabel.style.whiteSpace = 'nowrap';
+            holderLabel.style.fontWeight = '700';
+
+            holderLabel.appendChild(createAvatarMiniElement(holder.avatar));
+
+            const nameSpan = document.createElement('span');
+            nameSpan.style.marginLeft = '3px';
+            nameSpan.textContent = holder.name.split(' ')[0];
+            holderLabel.appendChild(nameSpan);
+
+            chip.appendChild(holderLabel);
+        }
 
         chip.onclick = () => {
             soundManager.playChipClink();
@@ -472,18 +509,47 @@ function renderChipsRack(state) {
     }
 }
 
-function renderAvatarHtml(avatar) {
-    if (avatar && (avatar.startsWith('data:') || avatar.startsWith('http'))) {
-        return `<img src="${avatar}" class="player-avatar-img" alt="avatar">`;
+// Helpers de construcción segura de Avatares mediante DOM
+function createAvatarElement(avatar, className = 'player-avatar-img') {
+    const valid = (typeof sanitizeAvatar === 'function') ? sanitizeAvatar(avatar) : (avatar || '🕵️');
+    if (valid.startsWith('data:image/')) {
+        const img = document.createElement('img');
+        img.className = className;
+        img.alt = 'avatar';
+        img.src = valid;
+        return img;
     }
-    return `<span>${avatar || '🕵️'}</span>`;
+    const span = document.createElement('span');
+    span.textContent = valid;
+    return span;
+}
+
+function createAvatarMiniElement(avatar) {
+    const valid = (typeof sanitizeAvatar === 'function') ? sanitizeAvatar(avatar) : (avatar || '🕵️');
+    if (valid.startsWith('data:image/')) {
+        const img = document.createElement('img');
+        img.style.width = '14px';
+        img.style.height = '14px';
+        img.style.borderRadius = '50%';
+        img.style.verticalAlign = 'middle';
+        img.style.objectFit = 'cover';
+        img.alt = 'avatar';
+        img.src = valid;
+        return img;
+    }
+    const span = document.createElement('span');
+    span.textContent = valid;
+    return span;
+}
+
+function renderAvatarHtml(avatar) {
+    const el = createAvatarElement(avatar);
+    return el.outerHTML;
 }
 
 function renderAvatarMini(avatar) {
-    if (avatar && (avatar.startsWith('data:') || avatar.startsWith('http'))) {
-        return `<img src="${avatar}" style="width:14px;height:14px;border-radius:50%;vertical-align:middle;object-fit:cover;">`;
-    }
-    return avatar || '🕵️';
+    const el = createAvatarMiniElement(avatar);
+    return el.outerHTML;
 }
 
 // ========================================================
@@ -496,10 +562,16 @@ function renderPokerStarsSeats(state) {
     const me = state.players.find(p => p.id === myPlayerId);
 
     const assistant = document.getElementById('hand-assistant-content');
-    if (me && me.bestHand) {
-        assistant.innerHTML = `<strong>${me.bestHand.name}:</strong> ${me.bestHand.description}`;
-    } else {
-        assistant.innerHTML = `Esperando cartas...`;
+    if (assistant) {
+        assistant.replaceChildren();
+        if (me && me.bestHand) {
+            const strong = document.createElement('strong');
+            strong.textContent = `${me.bestHand.name}: `;
+            assistant.appendChild(strong);
+            assistant.appendChild(document.createTextNode(me.bestHand.description || ''));
+        } else {
+            assistant.textContent = 'Esperando cartas...';
+        }
     }
 
     const total = state.players.length;
@@ -533,9 +605,9 @@ function renderPokerStarsSeats(state) {
         } else if (normAngle >= 245 && normAngle <= 295) {
             dirClass = 'dir-top'; // Arriba: cartas abajo hacia la mesa
         } else if (normAngle > 115 && normAngle < 245) {
-            dirClass = 'dir-left'; // Izquierda: cartas a la derecha hacia la mesa (NO toca el borde izquierdo)
+            dirClass = 'dir-left'; // Izquierda
         } else {
-            dirClass = 'dir-right'; // Derecha: cartas a la izquierda hacia la mesa (NO toca el borde derecho)
+            dirClass = 'dir-right'; // Derecha
         }
 
         pod.className = `poker-seat-pod ${dirClass} ${isMe ? 'is-me' : ''} ${player.ready ? 'is-ready' : ''} ${isSpotlight ? 'spotlight-active' : ''}`;
@@ -550,61 +622,84 @@ function renderPokerStarsSeats(state) {
         pod.style.left = `${leftPct}%`;
         pod.style.top = `${topPct}%`;
 
-        // Cartas: si no le tocó en la resolución y no es el jugador local, se muestran dadas vuelta
-        let cardsHtml = '';
-        if (player.cards && player.cards.length === 2) {
-            cardsHtml = `
-                <div class="seat-cards-row">
-                    ${createCardElement(player.cards[0]).outerHTML}
-                    ${createCardElement(player.cards[1]).outerHTML}
-                </div>
-            `;
+        // Hand tag
+        if (player.bestHand && (isSpotlight || ['round_end', 'game_over'].includes(state.phase))) {
+            const handTag = document.createElement('div');
+            handTag.className = 'seat-hand-tag';
+            handTag.textContent = player.bestHand.name;
+            pod.appendChild(handTag);
         }
 
-        // Ficha actual
-        let currentChipHtml = '';
+        // Cartas
+        if (player.cards && player.cards.length === 2) {
+            const cardsRow = document.createElement('div');
+            cardsRow.className = 'seat-cards-row';
+            cardsRow.appendChild(createCardElement(player.cards[0]));
+            cardsRow.appendChild(createCardElement(player.cards[1]));
+            pod.appendChild(cardsRow);
+        }
+
+        // Tarjeta principal del asiento
+        const mainCard = document.createElement('div');
+        mainCard.className = 'seat-main-card';
+
+        if (player.finalRank) {
+            const rankBadge = document.createElement('div');
+            rankBadge.className = 'seat-rank-badge';
+            rankBadge.title = 'Puesto de fuerza final';
+            rankBadge.textContent = `#${player.finalRank}`;
+            mainCard.appendChild(rankBadge);
+        }
+
+        const avatarWrap = document.createElement('div');
+        avatarWrap.className = 'seat-avatar-wrap';
+        avatarWrap.appendChild(createAvatarElement(player.avatar));
+        mainCard.appendChild(avatarWrap);
+
+        const infoCol = document.createElement('div');
+        infoCol.className = 'seat-info-col';
+
+        const nameDiv = document.createElement('div');
+        nameDiv.className = 'seat-player-name';
+        nameDiv.textContent = `${player.name} ${isMe ? '(Tú)' : ''}`;
+        infoCol.appendChild(nameDiv);
+
+        const statusBadge = document.createElement('div');
+        statusBadge.className = 'seat-status-badge';
+        statusBadge.textContent = player.ready ? '✅ Listo' : '⏳ Eligiendo';
+        infoCol.appendChild(statusBadge);
+
+        mainCard.appendChild(infoCol);
+
         if (player.currentChip !== null) {
             const colorClass = `chip-${(state.phaseColor && state.phaseColor.key) || 'white'}`;
-            currentChipHtml = `<div class="mini-chip-badge ${colorClass}">${player.currentChip}</div>`;
+            const chipBadge = document.createElement('div');
+            chipBadge.className = `mini-chip-badge ${colorClass}`;
+            chipBadge.textContent = String(player.currentChip);
+            mainCard.appendChild(chipBadge);
         }
 
-        // Historial completo de las 4 fases (Preflop, Flop, Turn, River)
+        pod.appendChild(mainCard);
+
+        // Historial de fases
         const hist = player.chipsHistory || {};
-        const historyHtml = `
-            <div class="seat-chips-history">
-                <span class="mini-chip-slot chip-white" title="Preflop">${hist.preflop || '-'}</span>
-                <span class="mini-chip-slot chip-yellow" title="Flop">${hist.flop || '-'}</span>
-                <span class="mini-chip-slot chip-orange" title="Turn">${hist.turn || '-'}</span>
-                <span class="mini-chip-slot chip-red" title="River">${hist.river || '-'}</span>
-            </div>
-        `;
-
-        // Puesto final alcanzado tras revelar
-        let rankBadgeHtml = '';
-        if (player.finalRank) {
-            rankBadgeHtml = `<div class="seat-rank-badge" title="Puesto de fuerza final">#${player.finalRank}</div>`;
-        }
-
-        pod.innerHTML = `
-            ${player.bestHand && (isSpotlight || ['round_end', 'game_over'].includes(state.phase)) ? `
-                <div class="seat-hand-tag">${player.bestHand.name}</div>
-            ` : ''}
-            ${cardsHtml}
-            <div class="seat-main-card">
-                ${rankBadgeHtml}
-                <div class="seat-avatar-wrap">
-                    ${renderAvatarHtml(player.avatar)}
-                </div>
-                <div class="seat-info-col">
-                    <div class="seat-player-name">${player.name} ${isMe ? '(Tú)' : ''}</div>
-                    <div class="seat-status-badge">
-                        ${player.ready ? '✅ Listo' : '⏳ Eligiendo'}
-                    </div>
-                </div>
-                ${currentChipHtml}
-            </div>
-            ${historyHtml}
-        `;
+        const historyDiv = document.createElement('div');
+        historyDiv.className = 'seat-chips-history';
+        const phaseSlots = [
+            { key: 'preflop', cls: 'chip-white', title: 'Preflop' },
+            { key: 'flop', cls: 'chip-yellow', title: 'Flop' },
+            { key: 'turn', cls: 'chip-orange', title: 'Turn' },
+            { key: 'river', cls: 'chip-red', title: 'River' }
+        ];
+        phaseSlots.forEach(ph => {
+            const slot = document.createElement('span');
+            slot.className = `mini-chip-slot ${ph.cls}`;
+            slot.title = ph.title;
+            const val = hist[ph.key];
+            slot.textContent = (val !== null && val !== undefined) ? String(val) : '-';
+            historyDiv.appendChild(slot);
+        });
+        pod.appendChild(historyDiv);
 
         seatsContainer.appendChild(pod);
     });
@@ -643,31 +738,64 @@ function initShowdownModal(state) {
 
         const chipVal = (p.chipsHistory && p.chipsHistory.river) || (idx + 1);
 
-        const connectorHtml = (idx < total - 1) ? `
-            <div class="recuento-slot-connector">
-                <div class="connector-beam" id="laser-beam-${idx}"></div>
-            </div>
-        ` : '';
+        if (idx < total - 1) {
+            const connDiv = document.createElement('div');
+            connDiv.className = 'recuento-slot-connector';
+            const beam = document.createElement('div');
+            beam.className = 'connector-beam';
+            beam.id = `laser-beam-${idx}`;
+            connDiv.appendChild(beam);
+            slotEl.appendChild(connDiv);
+        }
 
-        slotEl.innerHTML = `
-            ${connectorHtml}
-            <div class="slot-cards-container" id="slot-cards-${idx}">
-                ${createCardElement({ hidden: true }).outerHTML}
-                ${createCardElement({ hidden: true }).outerHTML}
-            </div>
-            <div class="slot-hand-badge-wrap">
-                <div class="slot-hand-badge" id="slot-badge-${idx}">...</div>
-                <div class="slot-chip-rank">${chipVal} ★</div>
-            </div>
-            <div class="slot-player-info" id="slot-player-${idx}">
-                <div class="slot-player-avatar">${renderAvatarHtml(p.avatar)}</div>
-                <div class="slot-player-name">${p.name}</div>
-            </div>
-            <div class="slot-chip-bottom chip-red">
-                <span>${chipVal}★</span>
-            </div>
-            <div class="slot-error-box hidden" id="slot-error-${idx}"></div>
-        `;
+        const cardsContainer = document.createElement('div');
+        cardsContainer.className = 'slot-cards-container';
+        cardsContainer.id = `slot-cards-${idx}`;
+        cardsContainer.appendChild(createCardElement({ hidden: true }));
+        cardsContainer.appendChild(createCardElement({ hidden: true }));
+        slotEl.appendChild(cardsContainer);
+
+        const badgeWrap = document.createElement('div');
+        badgeWrap.className = 'slot-hand-badge-wrap';
+        const badge = document.createElement('div');
+        badge.className = 'slot-hand-badge';
+        badge.id = `slot-badge-${idx}`;
+        badge.textContent = '...';
+        badgeWrap.appendChild(badge);
+
+        const chipRank = document.createElement('div');
+        chipRank.className = 'slot-chip-rank';
+        chipRank.textContent = `${chipVal} ★`;
+        badgeWrap.appendChild(chipRank);
+        slotEl.appendChild(badgeWrap);
+
+        const playerInfo = document.createElement('div');
+        playerInfo.className = 'slot-player-info';
+        playerInfo.id = `slot-player-${idx}`;
+
+        const playerAvatar = document.createElement('div');
+        playerAvatar.className = 'slot-player-avatar';
+        playerAvatar.appendChild(createAvatarElement(p.avatar));
+        playerInfo.appendChild(playerAvatar);
+
+        const playerName = document.createElement('div');
+        playerName.className = 'slot-player-name';
+        playerName.textContent = p.name;
+        playerInfo.appendChild(playerName);
+        slotEl.appendChild(playerInfo);
+
+        const chipBottom = document.createElement('div');
+        chipBottom.className = 'slot-chip-bottom chip-red';
+        const chipSpan = document.createElement('span');
+        chipSpan.textContent = `${chipVal}★`;
+        chipBottom.appendChild(chipSpan);
+        slotEl.appendChild(chipBottom);
+
+        const errBox = document.createElement('div');
+        errBox.className = 'slot-error-box hidden';
+        errBox.id = `slot-error-${idx}`;
+        slotEl.appendChild(errBox);
+
         slotsRow.appendChild(slotEl);
     });
 
@@ -684,10 +812,10 @@ async function renderShowdownStepAnimation(stepResult, stepIndex, total, isSeque
 
     // Giro de 180° y revelación de cartas auténticas
     cardsCont.classList.add('cards-revealing');
-    cardsCont.innerHTML = `
-        ${createCardElement(player.cards[0]).outerHTML}
-        ${createCardElement(player.cards[1]).outerHTML}
-    `;
+    cardsCont.replaceChildren(
+        createCardElement(player.cards[0]),
+        createCardElement(player.cards[1])
+    );
     soundManager.playCardDeal();
 
     badgeEl.textContent = bestHand.name;
@@ -720,11 +848,28 @@ async function renderShowdownStepAnimation(stepResult, stepIndex, total, isSeque
         const prevHandName = prevPlayer && prevPlayer.bestHand ? prevPlayer.bestHand.name : 'la mano anterior';
         const errBox = document.getElementById(`slot-error-${stepIndex}`);
         if (errBox) {
-            errBox.innerHTML = `
-                <div class="error-cross">✖</div>
-                <div class="error-title">¡DESALINEADO!</div>
-                <div class="error-desc">${bestHand.name}<br><small style="color:#fca5a5;font-weight:400;">inferior a ${prevHandName}</small></div>
-            `;
+            errBox.replaceChildren();
+            const errCross = document.createElement('div');
+            errCross.className = 'error-cross';
+            errCross.textContent = '✖';
+            errBox.appendChild(errCross);
+
+            const errTitle = document.createElement('div');
+            errTitle.className = 'error-title';
+            errTitle.textContent = '¡DESALINEADO!';
+            errBox.appendChild(errTitle);
+
+            const errDesc = document.createElement('div');
+            errDesc.className = 'error-desc';
+            errDesc.appendChild(document.createTextNode(bestHand.name));
+            errDesc.appendChild(document.createElement('br'));
+            const small = document.createElement('small');
+            small.style.color = '#fca5a5';
+            small.style.fontWeight = '400';
+            small.textContent = `inferior a ${prevHandName}`;
+            errDesc.appendChild(small);
+            errBox.appendChild(errDesc);
+
             errBox.classList.remove('hidden');
         }
 
@@ -961,7 +1106,19 @@ function handleIncomingSwapRequest(req) {
     const content = document.getElementById('swap-request-content');
 
     const offeredText = req.offeredChip ? `su ficha [${req.offeredChip}]` : 'quedarse sin ficha momentáneamente';
-    content.innerHTML = `<strong>${req.requesterName}</strong> quiere tomar tu ficha <strong>[${req.requestedChip}]</strong> y te ofrece a cambio ${offeredText}. ¿Aceptas el intercambio?`;
+    content.replaceChildren();
+
+    const strongName = document.createElement('strong');
+    strongName.textContent = req.requesterName;
+    content.appendChild(strongName);
+
+    content.appendChild(document.createTextNode(' quiere tomar tu ficha '));
+
+    const strongChip = document.createElement('strong');
+    strongChip.textContent = `[${req.requestedChip}]`;
+    content.appendChild(strongChip);
+
+    content.appendChild(document.createTextNode(` y te ofrece a cambio ${offeredText}. ¿Aceptas el intercambio?`));
 
     soundManager.playChatBeep();
     modal.classList.add('active');
@@ -1039,16 +1196,33 @@ function appendChatMessage(msg) {
     const el = document.createElement('div');
     el.className = 'chat-msg';
 
-    el.innerHTML = `
-        <div class="chat-msg-avatar">${renderAvatarMini(msg.avatar)}</div>
-        <div class="chat-msg-body">
-            <div class="chat-msg-header">
-                <span class="chat-msg-author">${msg.name}</span>
-                <span>${msg.time || ''}</span>
-            </div>
-            <div>${msg.text}</div>
-        </div>
-    `;
+    const avatarDiv = document.createElement('div');
+    avatarDiv.className = 'chat-msg-avatar';
+    avatarDiv.appendChild(createAvatarMiniElement(msg.avatar));
+    el.appendChild(avatarDiv);
+
+    const bodyDiv = document.createElement('div');
+    bodyDiv.className = 'chat-msg-body';
+
+    const headerDiv = document.createElement('div');
+    headerDiv.className = 'chat-msg-header';
+
+    const authorSpan = document.createElement('span');
+    authorSpan.className = 'chat-msg-author';
+    authorSpan.textContent = msg.name || 'Agente';
+    headerDiv.appendChild(authorSpan);
+
+    const timeSpan = document.createElement('span');
+    timeSpan.textContent = msg.time || '';
+    headerDiv.appendChild(timeSpan);
+
+    bodyDiv.appendChild(headerDiv);
+
+    const textDiv = document.createElement('div');
+    textDiv.textContent = msg.text || '';
+    bodyDiv.appendChild(textDiv);
+
+    el.appendChild(bodyDiv);
 
     list.appendChild(el);
     list.scrollTop = list.scrollHeight;
@@ -1231,11 +1405,30 @@ function initEditProfileModal() {
                     const sy = (img.height - minDim) / 2;
                     ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, 96, 96);
 
-                    tempEditAvatar = canvas.toDataURL('image/jpeg', 0.85);
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                    const safe = (typeof sanitizeAvatar === 'function') ? sanitizeAvatar(dataUrl) : dataUrl;
+                    if (!safe.startsWith('data:image/')) {
+                        alert('La imagen no es válida o excede el tamaño permitido.');
+                        return;
+                    }
+                    tempEditAvatar = safe;
 
                     document.querySelectorAll('#edit-avatar-selector .avatar-btn').forEach(b => b.classList.remove('selected'));
                     uploadLabel.classList.add('selected');
-                    uploadLabel.innerHTML = `<img src="${tempEditAvatar}" class="avatar-custom-img"><input type="file" id="input-edit-avatar-file" accept="image/*" style="display:none;">`;
+                    uploadLabel.replaceChildren();
+
+                    const imgPreview = document.createElement('img');
+                    imgPreview.src = tempEditAvatar;
+                    imgPreview.className = 'avatar-custom-img';
+                    uploadLabel.appendChild(imgPreview);
+
+                    const fileIn = document.createElement('input');
+                    fileIn.type = 'file';
+                    fileIn.id = 'input-edit-avatar-file';
+                    fileIn.accept = 'image/*';
+                    fileIn.style.display = 'none';
+                    uploadLabel.appendChild(fileIn);
+
                     attachFileInputHandler();
                     soundManager.playClick();
                 };
@@ -1263,9 +1456,23 @@ function initEditProfileModal() {
 
         document.querySelectorAll('#edit-avatar-selector .avatar-btn').forEach(b => b.classList.remove('selected'));
 
-        if (myAvatar && (myAvatar.startsWith('data:') || myAvatar.startsWith('http'))) {
+        const validMyAvatar = (typeof sanitizeAvatar === 'function') ? sanitizeAvatar(myAvatar) : myAvatar;
+        if (validMyAvatar && validMyAvatar.startsWith('data:image/')) {
             uploadLabel.classList.add('selected');
-            uploadLabel.innerHTML = `<img src="${myAvatar}" class="avatar-custom-img"><input type="file" id="input-edit-avatar-file" accept="image/*" style="display:none;">`;
+            uploadLabel.replaceChildren();
+
+            const imgPreview = document.createElement('img');
+            imgPreview.src = validMyAvatar;
+            imgPreview.className = 'avatar-custom-img';
+            uploadLabel.appendChild(imgPreview);
+
+            const fileIn = document.createElement('input');
+            fileIn.type = 'file';
+            fileIn.id = 'input-edit-avatar-file';
+            fileIn.accept = 'image/*';
+            fileIn.style.display = 'none';
+            uploadLabel.appendChild(fileIn);
+
             attachFileInputHandler();
         } else {
             const matchedBtn = Array.from(avatarBtns).find(b => b.dataset.avatar === myAvatar);

@@ -698,8 +698,9 @@ class PokerTable3D {
 
     // Genera la textura circular para el Medallón 3D del Avatar (Foto subida o Emoji)
     getAvatarMedallionTexture(avatarStr, isMe, isReady) {
-        const isImage = avatarStr && (avatarStr.startsWith('data:') || avatarStr.startsWith('http'));
-        const cacheKey = `${avatarStr || '🕵️'}_${isMe}_${isReady}`;
+        const validAvatar = (typeof sanitizeAvatar === 'function') ? sanitizeAvatar(avatarStr) : (avatarStr || '🕵️');
+        const isImage = validAvatar.startsWith('data:image/');
+        const cacheKey = `${validAvatar}_${isMe}_${isReady}`;
 
         if (this.avatarTextureCache.has(cacheKey)) {
             return this.avatarTextureCache.get(cacheKey);
@@ -742,7 +743,7 @@ class PokerTable3D {
                 ctx.font = '250px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText(avatarStr || '🕵️', 256, 272);
+                ctx.fillText(validAvatar, 256, 272);
                 ctx.restore();
             }
 
@@ -767,19 +768,18 @@ class PokerTable3D {
         if (this.renderer) tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
 
         if (isImage) {
-            if (this.avatarImageCache.has(avatarStr)) {
-                drawMedallion(this.avatarImageCache.get(avatarStr));
+            if (this.avatarImageCache.has(validAvatar)) {
+                drawMedallion(this.avatarImageCache.get(validAvatar));
                 tex.needsUpdate = true;
             } else {
                 drawMedallion(null);
                 const img = new Image();
-                img.crossOrigin = 'anonymous';
                 img.onload = () => {
-                    this.avatarImageCache.set(avatarStr, img);
+                    this.avatarImageCache.set(validAvatar, img);
                     drawMedallion(img);
                     tex.needsUpdate = true;
                 };
-                img.src = avatarStr;
+                img.src = validAvatar;
             }
         } else {
             drawMedallion(null);

@@ -1,5 +1,61 @@
 // game.js - Máquina de estado y lógica principal de "Operación Bóveda"
 
+if (typeof module !== 'undefined' && typeof require !== 'undefined') {
+    if (typeof Deck === 'undefined') {
+        const poker = require('./poker.js');
+        global.Deck = poker.Deck;
+        global.Card = poker.Card;
+        global.getBestHand = poker.getBestHand;
+        global.evaluate5Cards = poker.evaluate5Cards;
+        global.compareHandScores = poker.compareHandScores;
+        global.HAND_CATEGORIES = poker.HAND_CATEGORIES;
+    }
+}
+
+// Sanitizadores y Constantes de Seguridad
+const VALID_AVATAR_EMOJIS = ['🕵️', '🧠', '🕶️', '💻', '🔑', '🧨', '🏎️', '🤖'];
+const DEFAULT_AVATAR = '🕵️';
+const VALID_EMOTES = ['👀', '🤔', '😅', '😱', '🤞', '💰', '🚨'];
+
+// Validador estricto de Avatares (Emoji permitido o Data URL imagen <= 40KB)
+function sanitizeAvatar(avatar) {
+    if (!avatar || typeof avatar !== 'string') return DEFAULT_AVATAR;
+    const trimmed = avatar.trim();
+    if (VALID_AVATAR_EMOJIS.includes(trimmed)) {
+        return trimmed;
+    }
+    // Strict Data URL regex: data:image/(jpeg|png|webp);base64,... (cap at ~55,000 chars ≈ 40KB)
+    const dataUrlRegex = /^data:image\/(?:png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=]+$/;
+    if (trimmed.length <= 55000 && dataUrlRegex.test(trimmed)) {
+        return trimmed;
+    }
+    return DEFAULT_AVATAR;
+}
+
+// Sanitizador de Nombres de Jugador: strip control/bidi chars, collapse whitespace, max 15 chars
+function sanitizePlayerName(name) {
+    if (!name || typeof name !== 'string') return 'Agente';
+    // Strip control characters and bidirectional overrides
+    const cleaned = name.replace(/[\x00-\x1F\x7F-\x9F\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
+                        .replace(/\s+/g, ' ')
+                        .trim()
+                        .slice(0, 15);
+    return cleaned || 'Agente';
+}
+
+// Sanitizador de Mensajes de Chat: strip control chars, max 120 chars, drop empty
+function sanitizeChatMessage(text) {
+    if (!text || typeof text !== 'string') return '';
+    const cleaned = text.replace(/[\x00-\x1F\x7F-\x9F\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
+                        .trim()
+                        .slice(0, 120);
+    return cleaned;
+}
+
+function isValidEmote(emote) {
+    return typeof emote === 'string' && VALID_EMOTES.includes(emote.trim());
+}
+
 class OperacionBovedaGame {
     constructor(options = {}) {
         this.options = Object.assign({
@@ -40,10 +96,13 @@ class OperacionBovedaGame {
             return { success: false, message: 'El jugador ya está en la sala.' };
         }
 
+        const safeName = sanitizePlayerName(name || `Agente ${this.players.length + 1}`);
+        const safeAvatar = sanitizeAvatar(avatar || DEFAULT_AVATAR);
+
         const player = {
             id,
-            name: name || `Agente ${this.players.length + 1}`,
-            avatar: avatar || '🕵️',
+            name: safeName,
+            avatar: safeAvatar,
             isBot,
             cards: [],
             currentChip: null,
@@ -67,11 +126,11 @@ class OperacionBovedaGame {
         const player = this.players.find(p => p.id === id);
         if (!player) return { success: false };
 
-        if (newName && typeof newName === 'string' && newName.trim().length > 0) {
-            player.name = newName.trim().slice(0, 15);
+        if (newName !== undefined && newName !== null) {
+            player.name = sanitizePlayerName(newName);
         }
-        if (newAvatar && typeof newAvatar === 'string' && newAvatar.length > 0) {
-            player.avatar = newAvatar;
+        if (newAvatar !== undefined && newAvatar !== null) {
+            player.avatar = sanitizeAvatar(newAvatar);
         }
 
         this.notifyChange();
@@ -732,5 +791,14 @@ class OperacionBovedaGame {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { OperacionBovedaGame };
+    module.exports = {
+        OperacionBovedaGame,
+        sanitizeAvatar,
+        sanitizePlayerName,
+        sanitizeChatMessage,
+        isValidEmote,
+        VALID_AVATAR_EMOJIS,
+        DEFAULT_AVATAR,
+        VALID_EMOTES
+    };
 }
