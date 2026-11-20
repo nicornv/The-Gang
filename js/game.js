@@ -65,13 +65,48 @@ class OperacionBovedaGame {
 
     removePlayer(id) {
         const idx = this.players.findIndex(p => p.id === id);
-        if (idx !== -1) {
-            const removed = this.players.splice(idx, 1)[0];
-            this.addLog(`El agente ${removed.name} abandonó el equipo.`);
-            this.notifyChange();
-            return { success: true, player: removed };
+        if (idx === -1) return { success: false };
+
+        const removed = this.players.splice(idx, 1)[0];
+        this.addLog(`El agente ${removed.name} abandonó el equipo.`);
+
+        const total = this.players.length;
+        // Reajustar fichas disponibles a 1..N
+        this.availableChips = [];
+        for (let i = 1; i <= total; i++) {
+            this.availableChips.push(i);
         }
-        return { success: false };
+
+        // Si la partida está en curso, reacomodar fichas para no dejar huecos ni fichas > N
+        if (['preflop', 'flop', 'turn', 'river'].includes(this.phase)) {
+            if (total < 2) {
+                this.phase = 'lobby';
+                this.communityCards = [];
+                for (const p of this.players) {
+                    p.cards = [];
+                    p.currentChip = null;
+                    p.ready = false;
+                }
+            } else {
+                const holders = this.players
+                    .filter(p => p.currentChip !== null)
+                    .sort((a, b) => a.currentChip - b.currentChip);
+
+                holders.forEach((p, newIdx) => {
+                    const newChip = newIdx + 1;
+                    if (p.currentChip !== newChip) {
+                        p.currentChip = newChip;
+                        p.chipsHistory[this.phase] = newChip;
+                        if (!p.isBot) p.ready = false;
+                    }
+                });
+
+                this.assignOrphanBots();
+            }
+        }
+
+        this.notifyChange();
+        return { success: true, player: removed };
     }
 
     addBot() {

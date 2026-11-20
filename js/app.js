@@ -16,11 +16,25 @@ document.addEventListener('DOMContentLoaded', () => {
     initLobby();
     initModals();
     initSoundToggle();
+    initLeaveButton();
     initCheatSheet();
     initChat();
     initSwapModal();
     initQuickTools();
     checkUrlForRoom();
+});
+
+// Garantizar salida limpia si el usuario cierra o recarga la pestaña
+window.addEventListener('beforeunload', () => {
+    if (network) {
+        network.leaveRoom();
+    }
+});
+
+window.addEventListener('pagehide', () => {
+    if (network) {
+        network.leaveRoom();
+    }
 });
 
 function checkUrlForRoom() {
@@ -165,6 +179,8 @@ function setupNetwork() {
         onConnected: ({ roomCode, isHost }) => {
             document.getElementById('header-room-info').classList.remove('hidden');
             document.getElementById('room-code-display').textContent = roomCode;
+            const btnLeave = document.getElementById('btn-leave-game');
+            if (btnLeave) btnLeave.classList.remove('hidden');
 
             const waitingCodeEl = document.getElementById('lobby-waiting-code');
             if (waitingCodeEl) waitingCodeEl.textContent = roomCode;
@@ -195,7 +211,14 @@ function setupNetwork() {
             renderGame(state);
         },
         onError: (err) => {
-            alert(err);
+            showToast(`⚠️ ${err}`);
+            if (err && (err.includes('anfitrión') || err.includes('conexión'))) {
+                leaveGameToLobby(false);
+            }
+        },
+        onPlayerLeft: (player) => {
+            const pName = (player && player.name) ? player.name : 'Un jugador';
+            showToast(`🚪 ${pName} abandonó la partida. La mesa se reacomodó.`);
         },
         onEmote: (playerId, emote) => {
             showFloatingEmote(playerId, emote);
@@ -363,16 +386,14 @@ function renderGame(state) {
     }
 
     // Detectar inicio de nueva ronda (preflop) para disparar el reparto inicial una sola vez
-    const roundKey = `${state.roundNumber ?? state.vaultsCracked + state.alarmsTriggered}`;
+    const roundKey = `${state.roundNumber ?? state.round ?? (state.vaultsCracked + state.alarmsTriggered)}`;
     const isFreshPreflopDeal = state.phase === 'preflop' && (
         lastPhaseSeen !== 'preflop' || lastRoundNumber !== roundKey
     );
     if (isFreshPreflopDeal) {
         prevCommunityCount = 0;
+        lastCommunitySignature = '';
         lastRoundNumber = roundKey;
-        if (typeof soundManager !== 'undefined' && soundManager.playCardDeal) {
-            soundManager.playCardDeal();
-        }
     }
     lastPhaseSeen = state.phase;
 
@@ -382,6 +403,10 @@ function renderGame(state) {
     renderChipsRack(state);
     renderPokerStarsSeats(state, isFreshPreflopDeal);
     renderActionControls(state);
+
+    if (isFreshPreflopDeal) {
+        playCasinoDealAnimation(state);
+    }
 
     // Auto-showdown en River
     if (state.phase === 'showdown' && !isShowdownRunning && network.isHost) {
@@ -456,14 +481,22 @@ function renderPhaseIndicator(state) {
 }
 
 let prevCommunityCount = 0;
+let lastCommunitySignature = '';
 let lastRoundNumber = null;
 let lastPhaseSeen = null;
 
 function renderCommunityCards(cards) {
     const container = document.getElementById('community-cards-container');
+    const safeCards = cards || [];
+    const signature = safeCards.map(c => `${c.rank ?? c.label}${c.suit ?? c.symbol}`).join('|');
+
+    // No destruir el DOM si las cartas comunitarias no cambiaron (evita cortar el flip 3D)
+    if (signature === lastCommunitySignature && container.children.length === 5) {
+        return;
+    }
+
     container.innerHTML = '';
 
-    const safeCards = cards || [];
     if (safeCards.length < prevCommunityCount) {
         prevCommunityCount = 0;
     }
@@ -495,6 +528,7 @@ function renderCommunityCards(cards) {
         soundManager.playCardDeal();
     }
     prevCommunityCount = safeCards.length;
+    lastCommunitySignature = signature;
 }
 
 // Generador de cartas comunes de póker reales (baraja francesa clásica limpia)
@@ -614,8 +648,8 @@ const ARC_SEAT_LAYOUTS = {
     ],
     3: [
         { left: 50, top: 86, dir: 'dir-bottom' },
-        { left: 26, top: 16, dir: 'dir-top' },
-        { left: 74, top: 16, dir: 'dir-top' }
+        { left: 26, top: 16, dir: 'dir-left' },
+        { left: 74, top: 16, dir: 'dir-right' }
     ],
     4: [
         { left: 50, top: 86, dir: 'dir-bottom' },
@@ -626,19 +660,58 @@ const ARC_SEAT_LAYOUTS = {
     5: [
         { left: 50, top: 86, dir: 'dir-bottom' },
         { left: 10, top: 53, dir: 'dir-left' },
-        { left: 27, top: 15, dir: 'dir-top' },
-        { left: 73, top: 15, dir: 'dir-top' },
+        { left: 27, top: 15, dir: 'dir-left' },
+        { left: 73, top: 15, dir: 'dir-right' },
         { left: 90, top: 53, dir: 'dir-right' }
     ],
     6: [
         { left: 50, top: 86, dir: 'dir-bottom' },
         { left: 10, top: 55, dir: 'dir-left' },
-        { left: 23, top: 18, dir: 'dir-top' },
+        { left: 23, top: 18, dir: 'dir-left' },
         { left: 50, top: 13, dir: 'dir-top' },
-        { left: 77, top: 18, dir: 'dir-top' },
+        { left: 77, top: 18, dir: 'dir-right' },
         { left: 90, top: 55, dir: 'dir-right' }
     ]
 };
+
+function playCasinoDealAnimation(state) {
+    const layer = document.getElementById('casino-deal-layer');
+    if (!layer || !state || !state.players || state.players.length === 0) return;
+
+    layer.innerHTML = '';
+    const total = state.players.length;
+    const layout = ARC_SEAT_LAYOUTS[total] || ARC_SEAT_LAYOUTS[6];
+
+    // 2 rondas de reparto (primera carta a cada jugador, luego segunda carta) como en casino real
+    for (let roundIdx = 0; roundIdx < 2; roundIdx++) {
+        for (let seatIdx = 0; seatIdx < total; seatIdx++) {
+            const pos = layout[seatIdx] || { left: 50, top: 14 };
+            const stepIdx = roundIdx * total + seatIdx;
+            const delayMs = stepIdx * 95;
+
+            const cardEl = createCardElement({ hidden: true }, { extraClass: 'flying-deal-card' });
+            const offsetLeft = pos.dir === 'dir-right' ? -4 : (pos.dir === 'dir-left' ? 4 : 3);
+            cardEl.style.setProperty('--fly-rot', roundIdx === 0 ? '-6deg' : '6deg');
+            layer.appendChild(cardEl);
+
+            setTimeout(() => {
+                if (typeof soundManager !== 'undefined' && soundManager.playCardDeal && seatIdx % 2 === 0) {
+                    soundManager.playCardDeal();
+                }
+                // Forzar reflow antes de animar destino
+                void cardEl.offsetWidth;
+                cardEl.classList.add('is-flying');
+                cardEl.style.left = `${pos.left + offsetLeft}%`;
+                cardEl.style.top = `${pos.top}%`;
+
+                setTimeout(() => {
+                    cardEl.classList.add('is-landed');
+                    setTimeout(() => cardEl.remove(), 220);
+                }, 440);
+            }, delayMs);
+        }
+    }
+}
 
 function renderPokerStarsSeats(state, animateInitialDeal = false) {
     const seatsContainer = document.getElementById('poker-seats-container');
@@ -1330,6 +1403,104 @@ function initSoundToggle() {
         const enabled = soundManager.toggle();
         btnSound.innerHTML = enabled ? '🔊' : '🔇';
     };
+}
+
+function initLeaveButton() {
+    const btnLeave = document.getElementById('btn-leave-game');
+    if (!btnLeave) return;
+    btnLeave.addEventListener('click', () => {
+        soundManager.playClick();
+        leaveGameToLobby(true);
+    });
+}
+
+function leaveGameToLobby(showFeedback = true) {
+    if (network) {
+        network.leaveRoom();
+        network = null;
+    }
+
+    // Resetear estado local de interfaz
+    currentGameState = null;
+    myPlayerId = null;
+    isShowdownRunning = false;
+    peerShowdownFailed = false;
+    currentSpotlightPlayerId = null;
+    pendingSwapRequest = null;
+    isLocalAfk = false;
+    prevCommunityCount = 0;
+    lastCommunitySignature = '';
+    lastRoundNumber = null;
+    lastPhaseSeen = null;
+
+    // Cerrar modales y overlays abiertos
+    ['modal-recuento', 'modal-swap-request', 'modal-gameover', 'modal-rules'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.remove('active');
+    });
+    hideSpecialCard();
+
+    // Restaurar controles de AFK y header
+    const btnAfk = document.getElementById('btn-afk-toggle');
+    const afkLabel = document.getElementById('afk-toggle-label');
+    if (btnAfk) {
+        btnAfk.classList.remove('is-afk');
+        btnAfk.setAttribute('aria-pressed', 'false');
+    }
+    if (afkLabel) afkLabel.textContent = 'Ausente';
+
+    const roomInfo = document.getElementById('header-room-info');
+    const btnLeave = document.getElementById('btn-leave-game');
+    if (roomInfo) roomInfo.classList.add('hidden');
+    if (btnLeave) btnLeave.classList.add('hidden');
+
+    // Volver al lobby inicial (vista de configuración)
+    const lobbyScreen = document.getElementById('lobby-screen');
+    const gameScreen = document.getElementById('game-screen');
+    const setupView = document.getElementById('lobby-setup-view');
+    const waitingView = document.getElementById('lobby-waiting-view');
+    const configSection = document.getElementById('lobby-config-section');
+    const listEl = document.getElementById('lobby-players-list');
+    const countEl = document.getElementById('lobby-player-count');
+
+    if (gameScreen) gameScreen.classList.add('hidden');
+    if (lobbyScreen) lobbyScreen.classList.remove('hidden');
+    if (setupView) setupView.classList.remove('hidden');
+    if (waitingView) waitingView.classList.add('hidden');
+    if (configSection) configSection.classList.remove('hidden');
+    if (countEl) countEl.textContent = '1 / 6';
+
+    if (listEl) {
+        const currentName = (document.getElementById('input-player-name')?.value || myName || 'Cerebro').trim();
+        listEl.innerHTML = `
+            <div class="lobby-player-row lobby-player-you">
+                <div class="lobby-player-avatar" id="lobby-preview-avatar">${renderAvatarHtml(myAvatar)}</div>
+                <div class="lobby-player-info">
+                    <div class="lobby-player-name-row">
+                        <span class="lobby-player-name" id="lobby-preview-name">${currentName}</span>
+                        <span class="lobby-role-tag tag-you">Tú</span>
+                    </div>
+                    <div class="lobby-player-status online">● Listo para entrar</div>
+                </div>
+            </div>
+            <div class="lobby-empty-slots">
+                <div class="lobby-slot-empty">— Espacio disponible —</div>
+                <div class="lobby-slot-empty">— Espacio disponible —</div>
+                <div class="lobby-slot-empty">— Espacio disponible —</div>
+                <div class="lobby-slot-empty">— Espacio disponible —</div>
+                <div class="lobby-slot-empty">— Espacio disponible —</div>
+            </div>
+        `;
+    }
+
+    // Limpiar parámetro ?room= de la URL si existía
+    if (window.location.search.includes('room=')) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    if (showFeedback) {
+        showToast('🚪 Abandonaste la partida.');
+    }
 }
 
 

@@ -23,6 +23,7 @@ class GameNetwork {
         this.connections = new Map(); // Para el Host: peerId -> conn
         this.hostConn = null; // Para el Guest: conn con el Host
         this.game = null; // Instancia authoritative si es Host o Local
+        this.intentionalLeave = false;
     }
 
     // Modo 1: Jugar solo o con bots (100% local, sin red externa)
@@ -99,15 +100,18 @@ class GameNetwork {
             });
         });
 
-        conn.on('close', () => {
+        const handleDisconnect = () => {
             const playerId = conn.metadata && conn.metadata.playerId;
-            if (playerId) {
-                this.game.removePlayer(playerId);
+            if (playerId && this.connections.has(playerId)) {
                 this.connections.delete(playerId);
-                this.callbacks.onPlayerLeft(playerId);
+                const res = this.game ? this.game.removePlayer(playerId) : null;
+                this.callbacks.onPlayerLeft(res && res.player ? res.player : { id: playerId });
                 this.broadcastState();
             }
-        });
+        };
+
+        conn.on('close', handleDisconnect);
+        conn.on('error', handleDisconnect);
     }
 
     handleHostReceivedData(conn, msg) {
@@ -208,6 +212,18 @@ class GameNetwork {
                 }
                 break;
             }
+
+            case 'LEAVE_ROOM': {
+                const pid = conn.metadata ? conn.metadata.playerId : null;
+                if (pid && this.connections.has(pid)) {
+                    this.connections.delete(pid);
+                    const res = this.game ? this.game.removePlayer(pid) : null;
+                    this.callbacks.onPlayerLeft(res && res.player ? res.player : { id: pid });
+                    this.broadcastState();
+                    try { conn.close(); } catch (_) {}
+                }
+                break;
+            }
         }
     }
 
@@ -248,10 +264,12 @@ class GameNetwork {
             });
 
             conn.on('close', () => {
+                if (this.intentionalLeave) return;
                 this.callbacks.onError('Se perdió la conexión con el anfitrión de la sala.');
             });
 
             conn.on('error', (err) => {
+                if (this.intentionalLeave) return;
                 this.callbacks.onError(`Error de conexión con el anfitrión: ${err}`);
             });
         });
@@ -304,6 +322,40 @@ class GameNetwork {
             case 'SHOWDOWN_STEP':
                 this.callbacks.onShowdownStep(msg.stepResult);
                 break;
+
+            case 'HOST_LEFT':
+                this.intentionalLeave = true;
+                this.callbacks.onError('El anfitrión abandonó la partida.');
+                break;
+        }
+    }
+
+    // Abandonar la sala limpiamente (botón o cierre de pestaña)
+    leaveRoom() {
+        this.intentionalLeave = true;
+
+        if (this.isHost) {
+            for (const conn of this.connections.values()) {
+                try {
+                    if (conn.open) conn.send({ type: 'HOST_LEFT' });
+                    conn.close();
+                } catch (_) {}
+            }
+            this.connections.clear();
+            this.game = null;
+        } else if (this.hostConn) {
+            try {
+                if (this.hostConn.open) {
+                    this.hostConn.send({ type: 'LEAVE_ROOM' });
+                }
+                this.hostConn.close();
+            } catch (_) {}
+            this.hostConn = null;
+        }
+
+        if (this.peer) {
+            try { this.peer.destroy(); } catch (_) {}
+            this.peer = null;
         }
     }
 

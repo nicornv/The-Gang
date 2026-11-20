@@ -30,6 +30,7 @@
                 <strong id="room-code-display">----</strong>
                 <button id="btn-copy-invite" class="btn-icon" title="Copiar enlace de invitación">📋</button>
             </div>
+            <button id="btn-leave-game" class="btn-icon btn-icon-leave hidden" title="Abandonar partida y volver al inicio">🚪</button>
             <button id="btn-sound-toggle" class="btn-icon" title="Silenciar / Activar Sonidos">🔊</button>
             <button id="btn-rules" class="btn-icon" title="Manual de Reglas">❓</button>
         </div>
@@ -246,6 +247,9 @@
             <div id="poker-seats-container" class="poker-seats-container">
                 <!-- Se inyectan dinámicamente con orientación simétrica hacia el paño -->
             </div>
+
+            <!-- Capa dedicada para la animación de reparto de cartas desde el centro -->
+            <div id="casino-deal-layer" class="casino-deal-layer" aria-hidden="true"></div>
         </div>
 
         <!-- Barra Inferior de Asistencia y Acciones -->

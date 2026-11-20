@@ -165,6 +165,19 @@ header {
     transform: translateY(-2px);
 }
 
+.btn-icon-leave {
+    background: rgba(239, 68, 68, 0.14);
+    border-color: rgba(239, 68, 68, 0.4);
+    color: #fca5a5;
+}
+
+.btn-icon-leave:hover {
+    background: rgba(239, 68, 68, 0.32);
+    border-color: var(--crimson);
+    color: #ffffff;
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+}
+
 /* Controles de Avatar e Inputs (usados en el Lobby de dos paneles) */
 .avatar-selector {
     display: flex;
@@ -675,10 +688,47 @@ header {
     }
 }
 
-/* 2. Reparto/barajeo inicial desde el centro de la mesa hacia cada jugador */
+/* 2. Capa dedicada para reparto volador de cartas (inmune a re-renders) */
+.casino-deal-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 28;
+    overflow: visible;
+}
+
+.flying-deal-card {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 44px;
+    height: 62px;
+    margin-left: -22px;
+    margin-top: -31px;
+    opacity: 0;
+    will-change: left, top, transform, opacity;
+    transition:
+        left 0.46s cubic-bezier(0.16, 0.88, 0.24, 1),
+        top 0.46s cubic-bezier(0.16, 0.88, 0.24, 1),
+        transform 0.46s cubic-bezier(0.16, 0.88, 0.24, 1),
+        opacity 0.16s ease;
+    transform: scale(0.65) rotate(-18deg);
+}
+
+.flying-deal-card.is-flying {
+    opacity: 1;
+    transform: scale(1) rotate(var(--fly-rot, 0deg));
+}
+
+.flying-deal-card.is-landed {
+    opacity: 0;
+    transform: scale(0.95) rotate(var(--fly-rot, 0deg));
+}
+
+/* Reparto en sitio para cartas del asiento */
 .card-deal-in {
     will-change: transform, opacity;
-    animation: casinoHoleDeal 0.56s cubic-bezier(0.16, 0.86, 0.24, 1) both;
+    animation: casinoHoleDeal 0.52s cubic-bezier(0.16, 0.86, 0.24, 1) both;
 }
 
 @keyframes casinoHoleDeal {
