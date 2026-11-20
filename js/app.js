@@ -1078,3 +1078,24 @@ function initSoundToggle() {
         btnSound.innerHTML = enabled ? '🔊' : '🔇';
     };
 }
+
+
+// Sincronización live del preview de nombre y avatar en el lobby de 2 paneles
+(function initLobbyPreview() {
+    const nameInput = document.getElementById('input-player-name');
+    const previewName = document.getElementById('lobby-preview-name');
+    const previewAvatar = document.getElementById('lobby-preview-avatar');
+
+    if (nameInput && previewName) {
+        nameInput.addEventListener('input', () => {
+            previewName.textContent = nameInput.value.trim() || 'Agente';
+        });
+    }
+
+    // Actualizar preview de avatar al seleccionar
+    document.querySelectorAll('.avatar-btn:not(.avatar-upload-label)').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (previewAvatar) previewAvatar.textContent = btn.dataset.avatar;
+        });
+    });
+})();
