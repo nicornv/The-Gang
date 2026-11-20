@@ -1578,7 +1578,11 @@ function init3DCameraControls() {
             if (toolbar) toolbar.classList.remove('mode-2d');
             if (btnToggleMode) btnToggleMode.innerHTML = '🃏 Vista 2D';
             if (typeof pokerTable3D !== 'undefined' && pokerTable3D) {
-                pokerTable3D.is3DEnabled = true;
+                if (typeof pokerTable3D.setEnabled === 'function') {
+                    pokerTable3D.setEnabled(true);
+                } else {
+                    pokerTable3D.is3DEnabled = true;
+                }
                 if (currentGameState) {
                     renderPokerStarsSeats(currentGameState);
                     pokerTable3D.updateState(currentGameState, myPlayerId);
@@ -1590,7 +1594,11 @@ function init3DCameraControls() {
             if (toolbar) toolbar.classList.add('mode-2d');
             if (btnToggleMode) btnToggleMode.innerHTML = '🎲 Vista 3D';
             if (typeof pokerTable3D !== 'undefined' && pokerTable3D) {
-                pokerTable3D.is3DEnabled = false;
+                if (typeof pokerTable3D.setEnabled === 'function') {
+                    pokerTable3D.setEnabled(false);
+                } else {
+                    pokerTable3D.is3DEnabled = false;
+                }
             }
             if (currentGameState) {
                 renderPokerStarsSeats(currentGameState);

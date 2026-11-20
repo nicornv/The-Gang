@@ -13,6 +13,28 @@ class PokerTable3D {
 
         this.isInitialized = false;
         this.is3DEnabled = true;
+        this.animationFrameId = null;
+        this.isPageVisible = true;
+
+        // Shared geometries y materials para reutilización
+        this.sharedGeometries = {
+            cardBox: null,
+            pedestalToken: null,
+            seatHalo: null,
+            textPlane: null,
+            medallionCylinder: null,
+            medallionTorus: null
+        };
+        this.sharedMaterials = {
+            cardSide: null
+        };
+
+        // Cache signatures para evitar reconstruir grupos si no cambiaron
+        this.signatures = {
+            community: '',
+            chipsRack: '',
+            seats: ''
+        };
 
         // Grupos dinámicos de la escena
         this.tableGroup = null;
@@ -122,16 +144,47 @@ class PokerTable3D {
         this.scene.add(this.emotes3DGroup);
 
         this.cardBackTexture = this.createCardBackTexture();
+        this.initSharedResources();
         this.buildCasinoTable();
 
         // 7. Eventos de Mouse (Raycasting para fichas 3D)
         this.setupInteractionEvents();
 
-        // 8. Resize Observer
+        // 8. Resize Observer y Page Visibility
         this.setupResizeHandler();
+        this.setupVisibilityHandler();
 
         this.isInitialized = true;
-        this.animate();
+        this.startLoop();
+    }
+
+    initSharedResources() {
+        if (!this.sharedGeometries.cardBox) {
+            this.sharedGeometries.cardBox = new THREE.BoxGeometry(1.24, 0.028, 1.76);
+        }
+        if (!this.sharedGeometries.pedestalToken) {
+            this.sharedGeometries.pedestalToken = new THREE.CylinderGeometry(0.58, 0.72, 0.18, 32);
+        }
+        if (!this.sharedGeometries.seatHalo) {
+            const hGeo = new THREE.RingGeometry(0.68, 0.84, 36);
+            hGeo.rotateX(-Math.PI / 2);
+            this.sharedGeometries.seatHalo = hGeo;
+        }
+        if (!this.sharedGeometries.textPlane) {
+            this.sharedGeometries.textPlane = new THREE.PlaneGeometry(3.6, 1.26);
+        }
+        if (!this.sharedGeometries.medallionCylinder) {
+            const mGeo = new THREE.CylinderGeometry(0.68, 0.68, 0.14, 48);
+            mGeo.rotateY(Math.PI / 2);
+            mGeo.rotateX(Math.PI / 2);
+            this.sharedGeometries.medallionCylinder = mGeo;
+        }
+        if (!this.sharedGeometries.medallionTorus) {
+            this.sharedGeometries.medallionTorus = new THREE.TorusGeometry(0.68 + 0.03, 0.055, 16, 48);
+        }
+        if (!this.sharedMaterials.cardSide) {
+            this.sharedMaterials.cardSide = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 });
+        }
     }
 
     setupLights() {
@@ -556,17 +609,13 @@ class PokerTable3D {
 
         const tex = new THREE.CanvasTexture(canvas);
         if (this.renderer) tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
-        this.cardTextureCache.set(cacheKey, tex);
+        this.putTextureInCache(this.cardTextureCache, cacheKey, tex);
         return tex;
     }
 
     createCardMesh(card, isHidden = false) {
-        const width = 1.24;
-        const height = 0.028;
-        const depth = 1.76;
-
-        const geo = new THREE.BoxGeometry(width, height, depth);
-        const sideMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 });
+        const geo = this.sharedGeometries.cardBox || new THREE.BoxGeometry(1.24, 0.028, 1.76);
+        const sideMat = this.sharedMaterials.cardSide || new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 });
         const backMat = new THREE.MeshStandardMaterial({
             map: this.cardBackTexture,
             roughness: 0.42,
@@ -657,7 +706,7 @@ class PokerTable3D {
 
         const tex = new THREE.CanvasTexture(canvas);
         if (this.renderer) tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
-        this.chipTextureCache.set(cacheKey, tex);
+        this.putTextureInCache(this.chipTextureCache, cacheKey, tex);
         return tex;
     }
 
@@ -785,7 +834,7 @@ class PokerTable3D {
             drawMedallion(null);
         }
 
-        this.avatarTextureCache.set(cacheKey, tex);
+        this.putTextureInCache(this.avatarTextureCache, cacheKey, tex);
         return tex;
     }
 
@@ -793,12 +842,12 @@ class PokerTable3D {
     createAvatarMedallion3D(player, isMe) {
         const group = new THREE.Group();
 
-        const radius = 0.68;
-        const thickness = 0.14;
-        const cylGeo = new THREE.CylinderGeometry(radius, radius, thickness, 48);
-        // Orientar UVs derechos y rotar para que la cara circular mire hacia +Z (hacia la cámara)
-        cylGeo.rotateY(Math.PI / 2);
-        cylGeo.rotateX(Math.PI / 2);
+        const cylGeo = this.sharedGeometries.medallionCylinder || (() => {
+            const g = new THREE.CylinderGeometry(0.68, 0.68, 0.14, 48);
+            g.rotateY(Math.PI / 2);
+            g.rotateX(Math.PI / 2);
+            return g;
+        })();
 
         const faceTex = this.getAvatarMedallionTexture(player.avatar, isMe, player.ready);
         const rimColor = player.ready ? 0x10b981 : (isMe ? 0xeab308 : 0x475569);
@@ -818,7 +867,7 @@ class PokerTable3D {
         group.add(coinMesh);
 
         // Aro metálico 3D exterior (Torus) que envuelve la foto
-        const torusGeo = new THREE.TorusGeometry(radius + 0.03, 0.055, 16, 48);
+        const torusGeo = this.sharedGeometries.medallionTorus || new THREE.TorusGeometry(0.68 + 0.03, 0.055, 16, 48);
         const torusMat = new THREE.MeshStandardMaterial({
             color: rimColor,
             roughness: 0.2,
@@ -938,14 +987,12 @@ class PokerTable3D {
             }
 
             texPair = { frontTex, depthTex };
-            this.text3DTextureCache.set(cacheKey, texPair);
+            this.putTexturePairInCache(this.text3DTextureCache, cacheKey, texPair);
         }
 
         // Crear grupo 3D con capas apiladas en Z para dar verdadero grosor/extrusión 3D a las letras
         const textGroup = new THREE.Group();
-        const planeW = 3.6;
-        const planeH = 1.26;
-        const planeGeo = new THREE.PlaneGeometry(planeW, planeH);
+        const planeGeo = this.sharedGeometries.textPlane || new THREE.PlaneGeometry(3.6, 1.26);
 
         // Capas de extrusión traseras (volumen 3D real al mirar de costado)
         const depthMat = new THREE.MeshBasicMaterial({
@@ -1022,7 +1069,7 @@ class PokerTable3D {
 
             tex = new THREE.CanvasTexture(canvas);
             if (this.renderer) tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
-            this.labelTextureCache.set(cacheKey, tex);
+            this.putTextureInCache(this.labelTextureCache, cacheKey, tex);
         }
 
         const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
@@ -1032,11 +1079,96 @@ class PokerTable3D {
         return sprite;
     }
 
+    // Helper para poner texturas en caché con límite LRU (64 elementos)
+    putTextureInCache(cache, key, texture) {
+        if (cache.has(key)) {
+            cache.delete(key);
+        } else if (cache.size >= 64) {
+            const oldestKey = cache.keys().next().value;
+            const oldestTex = cache.get(oldestKey);
+            if (oldestTex && typeof oldestTex.dispose === 'function') {
+                oldestTex.dispose();
+            }
+            cache.delete(oldestKey);
+        }
+        cache.set(key, texture);
+    }
+
+    putTexturePairInCache(cache, key, pair) {
+        if (cache.has(key)) {
+            cache.delete(key);
+        } else if (cache.size >= 64) {
+            const oldestKey = cache.keys().next().value;
+            const oldestPair = cache.get(oldestKey);
+            if (oldestPair) {
+                if (oldestPair.frontTex && typeof oldestPair.frontTex.dispose === 'function') oldestPair.frontTex.dispose();
+                if (oldestPair.depthTex && typeof oldestPair.depthTex.dispose === 'function') oldestPair.depthTex.dispose();
+            }
+            cache.delete(oldestKey);
+        }
+        cache.set(key, pair);
+    }
+
+    // Comprueba si una textura está en algún caché compartido para NO liberarla
+    isSharedTexture(tex) {
+        if (!tex) return false;
+        if (tex === this.cardBackTexture) return true;
+        for (const t of this.cardTextureCache.values()) {
+            if (t === tex) return true;
+        }
+        for (const t of this.chipTextureCache.values()) {
+            if (t === tex) return true;
+        }
+        for (const t of this.labelTextureCache.values()) {
+            if (t === tex) return true;
+        }
+        for (const t of this.avatarTextureCache.values()) {
+            if (t === tex) return true;
+        }
+        for (const pair of this.text3DTextureCache.values()) {
+            if (pair && (pair.frontTex === tex || pair.depthTex === tex)) return true;
+        }
+        return false;
+    }
+
+    // Dispositor recursivo seguro para liberar VRAM en geometrías y materiales
+    disposeObject(obj) {
+        if (!obj) return;
+
+        // Si es una geometría compartida permanente, no disponerla
+        const isSharedGeo = Object.values(this.sharedGeometries).includes(obj.geometry);
+        if (obj.geometry && !isSharedGeo) {
+            obj.geometry.dispose();
+        }
+
+        if (obj.material) {
+            const isSharedMat = Object.values(this.sharedMaterials).includes(obj.material);
+            if (!isSharedMat) {
+                const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+                for (const m of mats) {
+                    if (!m) continue;
+                    // Solo disponemos mapas si no son de la caché
+                    if (m.map && !this.isSharedTexture(m.map)) {
+                        m.map.dispose();
+                    }
+                    m.dispose();
+                }
+            }
+        }
+
+        if (obj.children && obj.children.length > 0) {
+            for (let i = obj.children.length - 1; i >= 0; i--) {
+                this.disposeObject(obj.children[i]);
+            }
+        }
+    }
+
     clearGroup(group) {
         if (!group) return;
         while (group.children.length > 0) {
             const child = group.children[0];
             group.remove(child);
+            this.disposeObject(child);
         }
     }
 
@@ -1058,6 +1190,13 @@ class PokerTable3D {
     }
 
     renderCommunity3D(cards) {
+        // Firma barata para saber si las cartas comunitarias cambiaron
+        const sig = cards.map(c => `${c.rank}-${c.suit}`).join('|');
+        if (this.signatures.community === sig && cards.length === this.lastCommunityCount) {
+            return;
+        }
+        this.signatures.community = sig;
+
         this.clearGroup(this.communityGroup);
         this.animatedCards = [];
 
@@ -1095,16 +1234,26 @@ class PokerTable3D {
     }
 
     renderChipsRack3D(state, myPlayerId) {
+        const isChipPhase = ['preflop', 'flop', 'turn', 'river'].includes(state.phase);
+        const colorKey = (state.phaseColor && state.phaseColor.key) || 'white';
+        const totalPlayers = state.players.length;
+
+        // Firma barata para el rack de fichas
+        const holdersSig = state.players.map(p => `${p.name}:${p.currentChip}`).join(',');
+        const sig = `${state.phase}_${colorKey}_${totalPlayers}_${myPlayerId}_${holdersSig}`;
+
+        if (this.signatures.chipsRack === sig) {
+            return;
+        }
+        this.signatures.chipsRack = sig;
+
         this.clearGroup(this.chipsRackGroup);
         this.interactiveChips = [];
 
-        const isChipPhase = ['preflop', 'flop', 'turn', 'river'].includes(state.phase);
         if (!isChipPhase) return;
 
-        const totalPlayers = state.players.length;
         const me = state.players.find(p => p.id === myPlayerId);
         const myCurrentChip = me ? me.currentChip : null;
-        const colorKey = (state.phaseColor && state.phaseColor.key) || 'white';
 
         const spacing = 1.68;
         const startX = -((totalPlayers - 1) * spacing) / 2;
@@ -1181,6 +1330,20 @@ class PokerTable3D {
     }
 
     renderSeatsAndPlayerCards3D(state, myPlayerId) {
+        // Firma barata para los asientos de jugadores
+        const seatsSig = state.players.map(p => {
+            const h = p.chipsHistory || {};
+            const cardsStr = (p.cards || []).map(c => c ? `${c.rank}${c.suit}${c.hidden ? 'h' : ''}` : '').join('-');
+            const handTag = (state.phase === 'showdown' || state.phase === 'game_over') ? (p.bestHand ? p.bestHand.name : '') : '';
+            return `${p.id}:${p.name}:${p.avatar}:${p.ready}:${p.currentChip}:${h.preflop}-${h.flop}-${h.turn}-${h.river}:${cardsStr}:${handTag}`;
+        }).join(';');
+        const sig = `${myPlayerId}_${state.phase}_${seatsSig}`;
+
+        if (this.signatures.seats === sig) {
+            return;
+        }
+        this.signatures.seats = sig;
+
         this.clearGroup(this.seats3DGroup);
         this.floatingSeats = [];
 
@@ -1216,7 +1379,7 @@ class PokerTable3D {
             const lookAngle = Math.atan2(cardCenterX, cardCenterZ);
 
             // 1. Pedestal 3D de base en el borde de la mesa
-            const tokenGeo = new THREE.CylinderGeometry(0.58, 0.72, 0.18, 32);
+            const tokenGeo = this.sharedGeometries.pedestalToken || new THREE.CylinderGeometry(0.58, 0.72, 0.18, 32);
             const tokenColor = isMe ? 0x10b981 : (player.ready ? 0x059669 : 0x1e293b);
             const tokenMat = new THREE.MeshStandardMaterial({
                 color: tokenColor,
@@ -1227,8 +1390,11 @@ class PokerTable3D {
             tokenMesh.position.set(seatX, 0.32, seatZ);
             this.seats3DGroup.add(tokenMesh);
 
-            const haloGeo = new THREE.RingGeometry(0.68, 0.84, 36);
-            haloGeo.rotateX(-Math.PI / 2);
+            const haloGeo = this.sharedGeometries.seatHalo || (() => {
+                const h = new THREE.RingGeometry(0.68, 0.84, 36);
+                h.rotateX(-Math.PI / 2);
+                return h;
+            })();
             const haloMat = new THREE.MeshBasicMaterial({
                 color: player.ready ? 0x10b981 : 0xeab308,
                 transparent: true,
@@ -1495,10 +1661,48 @@ class PokerTable3D {
         }
     }
 
-    animate() {
-        requestAnimationFrame(() => this.animate());
+    setupVisibilityHandler() {
+        document.addEventListener('visibilitychange', () => {
+            this.isPageVisible = !document.hidden;
+            if (this.isPageVisible && this.is3DEnabled) {
+                this.startLoop();
+            } else {
+                this.stopLoop();
+            }
+        });
+    }
 
-        if (!this.is3DEnabled || !this.renderer || !this.scene || !this.camera) return;
+    setEnabled(enabled) {
+        this.is3DEnabled = !!enabled;
+        if (this.is3DEnabled && this.isPageVisible) {
+            this.startLoop();
+        } else {
+            this.stopLoop();
+        }
+    }
+
+    startLoop() {
+        if (!this.animationFrameId && this.is3DEnabled && this.isPageVisible) {
+            this.clock.start();
+            this.animationFrameId = requestAnimationFrame(() => this.animate());
+        }
+    }
+
+    stopLoop() {
+        if (this.animationFrameId) {
+            cancelAnimationFrame(this.animationFrameId);
+            this.animationFrameId = null;
+        }
+    }
+
+    animate() {
+        this.animationFrameId = null;
+
+        if (!this.is3DEnabled || !this.isPageVisible || !this.renderer || !this.scene || !this.camera) {
+            return;
+        }
+
+        this.animationFrameId = requestAnimationFrame(() => this.animate());
 
         const elapsed = this.clock.getElapsedTime();
 
