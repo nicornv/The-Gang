@@ -1083,7 +1083,6 @@ function renderActionControls(state) {
         btnNextRound.innerHTML = '🃏 Siguiente Ronda';
         btnNextRound.onclick = () => {
             soundManager.playCardDeal();
-            document.getElementById('showdown-live-banner').classList.add('hidden');
             network.startNewRound();
         };
         container.appendChild(btnNextRound);

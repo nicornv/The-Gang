@@ -9,6 +9,9 @@ if (typeof module !== 'undefined' && typeof require !== 'undefined') {
         global.evaluate5Cards = poker.evaluate5Cards;
         global.compareHandScores = poker.compareHandScores;
         global.HAND_CATEGORIES = poker.HAND_CATEGORIES;
+        global.evaluatePartialHand = poker.evaluatePartialHand;
+        global.SUITS = poker.SUITS;
+        global.RANKS = poker.RANKS;
     }
     if (typeof BotPlayer === 'undefined') {
         const botModule = require('./bot.js');

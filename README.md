@@ -49,17 +49,29 @@ Las cartas de todos los jugadores se revelan una a una siguiendo estrictamente e
 
 ## 🚀 Cómo Jugar
 
-### 1. Jugar en tu PC / Localmente (Inmediato)
-* Haz doble clic en el archivo [`Abrir_Juego.bat`](file:///d:/TheGang/Abrir_Juego.bat) o abre directamente [`index.html`](file:///d:/TheGang/index.html) con Google Chrome, Edge o Brave.
+### 1. Jugar en tu PC / Localmente
+* Haz doble clic en [`Abrir_Juego.bat`](Abrir_Juego.bat) o ejecuta `npm start` (o `node server.js`) y abre `http://localhost:3000`. Si no tienes Node instalado, puedes abrir directamente [`index.html`](index.html) en tu navegador.
 * Puedes seleccionar la pestaña **"Solo (Bots)"** para probar el juego de inmediato con bots inteligentes de póker.
 
 ### 2. Jugar Online con Amigos (Multijugador P2P WebRTC)
-* Uno de los jugadores hace clic en **"Crear Sala"**.
+* Uno de los jugadores hace clic en **"Crear Sala"** (o "Crear Sala Multijugador Online").
 * Aparecerá el código de sala y el botón **📋 (Copiar Enlace de Invitación)**.
-* Comparte el enlace con tus amigos por WhatsApp, Discord o Telegram.
-* Al hacer clic en el enlace, tus amigos ingresan directamente a la sala desde su PC o celular, **sin necesidad de instalar nada**.
+* **Nota sobre enlaces de invitación:** Si juegas vía `file://` o en `localhost`, el enlace copiado te avisará que tus amigos en otras máquinas necesitan que el juego esté en una URL pública (o bien que les pases solo el código de sala de 5 caracteres).
+* Si el anfitrión original abandona la partida en mitad del juego, el sistema migra automáticamente el anfitrión al siguiente jugador conectado; en ese momento el botón de invitación se deshabilita porque el código original de sala ya no admite nuevos participantes externos.
 
-### 3. Publicarlo en Internet Gratis (GitHub Pages o Vercel)
-Como el juego está construido con HTML5, CSS3, JavaScript puro y WebRTC (PeerJS):
-* **GitHub Pages:** Sube estos archivos a un repositorio de GitHub, activa *Pages* en la configuración y tendrás un enlace `https://tuusuario.github.io/operacion-boveda` funcionando 24/7 gratis.
-* **Vercel / Netlify:** Arrastra la carpeta del proyecto a la web de Vercel o Netlify para tenerlo online en 10 segundos.
+### 3. Configuración del Servidor PeerJS
+Por defecto el juego utiliza la nube pública de PeerJS (`0.peerjs.com`). Si deseas desplegar tu propio servidor PeerServer privado para mayor control o privacidad, edita la constante `PEERJS_BROKER_CONFIG` en [`js/network.js`](js/network.js):
+```javascript
+const PEERJS_BROKER_CONFIG = {
+    host: 'tu-servidor-peerjs.com',
+    port: 443,
+    path: '/peerjs',
+    secure: true
+};
+```
+
+### 4. Pruebas Automatizadas
+Ejecuta la suite de pruebas unitarias nativas con:
+```bash
+npm test
+```

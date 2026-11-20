@@ -673,21 +673,6 @@ header {
     }
 }
 
-/* Banner de Showdown en Vivo */
-.showdown-live-banner {
-    background: rgba(8, 10, 14, 0.96);
-    border: 2px solid var(--crimson);
-    box-shadow: 0 0 25px var(--crimson-glow);
-    padding: 6px 18px;
-    border-radius: 20px;
-    font-weight: 800;
-    font-size: 0.9rem;
-    color: #fca5a5;
-    animation: flash-alarm 1.2s infinite alternate;
-    text-align: center;
-    max-width: 440px;
-}
-
 /* ========================================================
    FICHAS DE CASINO REALES (CLAY POKER CHIPS CON NÚMERO)
    ======================================================== */
@@ -1463,11 +1448,6 @@ header {
 @keyframes pulse-emerald {
     0%, 100% { box-shadow: 0 0 10px var(--emerald-glow); }
     50% { box-shadow: 0 0 25px var(--emerald-glow); }
-}
-
-@keyframes pulse-gold {
-    0%, 100% { box-shadow: 0 0 10px var(--gold-glow); }
-    50% { box-shadow: 0 0 25px var(--gold-glow); }
 }
 
 @keyframes flash-alarm {
